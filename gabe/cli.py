@@ -94,7 +94,14 @@ def _show_brief(text: str, path) -> None:
 def _brief(cfg, args) -> int:
     from gabe.briefing import run_briefing
 
-    _show_brief(*run_briefing(cfg, on_event=print_event))
+    from gabe.briefing import email_briefing
+
+    text, path = run_briefing(cfg, on_event=print_event)
+    _show_brief(text, path)
+    if not args.no_email:
+        sent_to = email_briefing(cfg, text)
+        if sent_to:
+            print(f"{DIM}Emailed to {', '.join(sent_to)}{RESET}", file=sys.stderr)
     return 0
 
 
@@ -154,7 +161,8 @@ def main(argv: list[str] | None = None) -> int:
     for p in (ap, chat):
         p.add_argument("-m", "--message", help="Run a single request and exit")
         p.add_argument("--unattended", action="store_true", help="Refuse every action that needs approval")
-    sub.add_parser("brief", help="Produce today's daily briefing now")
+    brief = sub.add_parser("brief", help="Produce today's daily briefing now (and email it if configured)")
+    brief.add_argument("--no-email", action="store_true", help="Don't email it, even if briefing.email_to is set")
     sub.add_parser("schedule", help="Run forever, producing the daily briefing at the configured time")
     auth = sub.add_parser("auth", help="Authorise an integration")
     auth.add_argument("service", choices=["gmail"])

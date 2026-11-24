@@ -90,6 +90,11 @@ can't change or send anything. It writes the brief to the terminal and to
 `config/playbooks/daily-brief.md`. `gabe schedule` runs it at `briefing.time` on
 `briefing.days`. Alternatively, call `gabe brief` from cron or launchd.
 
+If `briefing.email_to` is set, the finished brief is also emailed through the connected
+Gmail account, with plain text and formatted HTML versions. `me` means the connected
+mailbox itself. Recipients are fixed in config, not chosen by the model, so this send
+skips the approval prompt but is still audited. Use `gabe brief --no-email` to skip it.
+
 ## Planned
 
 - Web UI: [docs/UI_PLAN.md](docs/UI_PLAN.md)

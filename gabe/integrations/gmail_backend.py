@@ -142,13 +142,19 @@ class GmailClient:
             "body": body[:MAX_BODY_CHARS] + ("\n[...truncated]" if truncated else ""),
         }
 
-    def _compose(self, to, subject, body, cc=None, reply_to_id=None) -> dict[str, Any]:
+    def address(self) -> str:
+        """The connected mailbox's own address."""
+        return self.svc.users().getProfile(userId="me").execute()["emailAddress"]
+
+    def _compose(self, to, subject, body, cc=None, reply_to_id=None, html_body=None) -> dict[str, Any]:
         msg = EmailMessage()
         msg["To"] = ", ".join(to)
         if cc:
             msg["Cc"] = ", ".join(cc)
         msg["Subject"] = subject
         msg.set_content(body)
+        if html_body:
+            msg.add_alternative(html_body, subtype="html")
         out: dict[str, Any] = {}
         if reply_to_id:
             orig = (
@@ -170,8 +176,8 @@ class GmailClient:
         d = self.svc.users().drafts().create(userId="me", body={"message": message}).execute()
         return d["id"]
 
-    def send(self, to, subject, body, cc=None, reply_to_id=None) -> str:
-        message = self._compose(to, subject, body, cc, reply_to_id)
+    def send(self, to, subject, body, cc=None, reply_to_id=None, html_body=None) -> str:
+        message = self._compose(to, subject, body, cc, reply_to_id, html_body)
         sent = self.svc.users().messages().send(userId="me", body=message).execute()
         return sent["id"]
 

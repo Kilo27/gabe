@@ -37,6 +37,7 @@ class BriefingSettings:
     time: str = "08:00"
     days: list[str] = field(default_factory=lambda: DAYS[:5])
     output_dir: Path | None = None
+    email_to: list[str] = field(default_factory=list)  # "me" = the connected mailbox
 
     @classmethod
     def from_config(cls, cfg: Config) -> "BriefingSettings":
@@ -46,6 +47,7 @@ class BriefingSettings:
             time=str(raw.get("time", "08:00")),
             days=[d.lower()[:3] for d in raw.get("days", DAYS[:5])],
             output_dir=(cfg.root / out).resolve() if out else cfg.data_dir / "briefings",
+            email_to=list(raw.get("email_to") or []),
         )
 
 
@@ -81,6 +83,32 @@ def run_briefing(cfg: Config, provider: Provider | None = None, on_event: EventH
     return text, path
 
 
+def email_briefing(cfg: Config, text: str, client=None) -> list[str]:
+    """Email the briefing to `briefing.email_to`. Returns the addresses sent to.
+
+    This send is driven by code to recipients fixed in config, not chosen by the
+    model, so it doesn't go through the approval policy. It is still audited.
+    """
+    from gabe.markdown_email import to_html
+
+    settings = BriefingSettings.from_config(cfg)
+    if not settings.email_to:
+        return []
+    if client is None:
+        from gabe.integrations.email import gmail_client_from_config
+
+        client = gmail_client_from_config(cfg)
+    to = [client.address() if a.strip().lower() == "me" else a.strip() for a in settings.email_to]
+    day = datetime.now(company_tz(cfg)).strftime("%a %d %b")
+    subject = f"Daily brief: {day}"
+    msg_id = client.send(to, subject, text, html_body=to_html(text))
+    AuditLog(cfg.data_dir / "audit.jsonl").record(
+        agent="briefing", tool="send_email", input={"to": to, "subject": subject},
+        outcome="ok", error=False, message_id=msg_id,
+    )
+    return to
+
+
 def next_run(now: datetime, at: str, days: list[str]) -> datetime:
     """Next datetime at HH:MM on an allowed weekday, strictly after `now`."""
     hour, minute = (int(x) for x in at.split(":"))
@@ -110,6 +138,8 @@ def run_scheduler(
         while (remaining := (target - datetime.now(tz)).total_seconds()) > 0:
             sleep(min(remaining, 60))
         try:
-            on_brief(*run_briefing(cfg))
+            text, path = run_briefing(cfg)
+            on_brief(text, path)
+            email_briefing(cfg, text)
         except Exception as e:  # keep the scheduler alive across a bad run
             on_error(e)

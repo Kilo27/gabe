@@ -49,10 +49,11 @@ policy:
   integrations: {}         # e.g. {email: ask}
 
 # Daily briefing: `gabe brief` runs it now; `gabe schedule` runs it at this time.
-# Read-only: the briefing can look at tasks, notes and email but can't change or send anything.
+# The agent writing it is read-only; the finished brief is then emailed to `email_to`.
 briefing:
   time: "08:00"            # company timezone
   days: [mon, tue, wed, thu, fri]
+  email_to: [me]           # "me" = the connected Gmail mailbox; add other addresses as needed
   # output_dir: ../data/briefings
 
 # Specialists Gabe can hand work to. `tools` limits what each one can use.

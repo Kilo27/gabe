@@ -141,3 +141,51 @@ def test_cli_chat_subcommand_keeps_message(monkeypatch, config_file):
     assert seen == {"m": "hi", "u": True}
     cli.main(["-c", str(config_file), "-m", "top"])
     assert seen["m"] == "top"
+
+
+def test_email_briefing_sends_to_me_with_html(gmail_cfg):
+    from gabe.briefing import email_briefing
+
+    cfg, fake = gmail_cfg
+    cfg.briefing["email_to"] = ["me", "ops@test.co"]
+
+    class Client:
+        sent = []
+
+        def address(self):
+            return "boss@test.co"
+
+        def send(self, to, subject, body, html_body=None):
+            self.sent.append((to, subject, body, html_body))
+            return "s1"
+
+    c = Client()
+    assert email_briefing(cfg, "# Brief\n- **one**", client=c) == ["boss@test.co", "ops@test.co"]
+    to, subject, body, html_body = c.sent[0]
+    assert subject.startswith("Daily brief: ") and body.startswith("# Brief")
+    assert "<strong>one</strong>" in html_body and "<li>" in html_body
+    assert "send_email" in (cfg.data_dir / "audit.jsonl").read_text()
+
+
+def test_email_briefing_skipped_without_recipients(gmail_cfg):
+    from gabe.briefing import email_briefing
+
+    cfg, _ = gmail_cfg
+    assert email_briefing(cfg, "x", client=object()) == []
+
+
+def test_gmail_send_multipart_html(gmail_cfg):
+    cfg, fake = gmail_cfg
+    from gabe.integrations.email import gmail_client_from_config
+
+    gmail_client_from_config(cfg).send(["a@b.c"], "s", "plain", html_body="<p>rich</p>")
+    raw = base64.urlsafe_b64decode(fake.sent[0]["raw"]).decode()
+    assert "multipart/alternative" in raw and "text/html" in raw
+
+
+def test_markdown_to_html():
+    from gabe.markdown_email import to_html
+
+    out = to_html("# Title\n\nSome *it* & **bold**\n1. a\n2. b\n---\n- x <y>")
+    assert "<h2" in out and "<em>it</em>" in out and "&amp;" in out
+    assert "<ol" in out and "<hr" in out and "x &lt;y&gt;" in out

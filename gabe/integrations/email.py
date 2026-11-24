@@ -50,6 +50,18 @@ def gmail_paths(ctx):
     return creds_path, token_path
 
 
+def gmail_client_from_config(cfg):
+    """A GmailClient for the configured email integration (for code-driven sends)."""
+    from gabe.integrations import IntegrationContext
+    from gabe.integrations.gmail_backend import GmailClient, build_service, load_credentials
+
+    spec = next((i for i in cfg.integrations if i.name == "email"), None)
+    if not spec or spec.settings.get("backend") != "gmail":
+        raise RuntimeError("email integration is not configured with `backend: gmail`")
+    creds_path, token_path = gmail_paths(IntegrationContext("email", spec.settings, cfg.data_dir, cfg))
+    return GmailClient(lambda: build_service(load_credentials(creds_path, token_path, interactive=False)))
+
+
 def _setup_gmail(registry: ToolRegistry, ctx) -> None:
     from gabe.integrations.gmail_backend import GmailClient, build_service, load_credentials
 
