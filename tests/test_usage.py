@@ -36,7 +36,7 @@ def test_every_step_is_logged_with_user_task_and_delegate(config_file):
 
     events = read_events(cfg.data_dir / "usage.jsonl")
     assert [(e["user"], e["task"], e["agent"]) for e in events] == [
-        ("sam", "chat", "Gabe"), ("sam", "chat", "scheduler"), ("sam", "chat", "Gabe")]
+        ("sam", "chat", "Gabe"), ("sam", "chat", "Scheduler"), ("sam", "chat", "Gabe")]
     assert events[1]["cache_read_tokens"] == 40 and events[2]["cache_write_tokens"] == 30
 
 

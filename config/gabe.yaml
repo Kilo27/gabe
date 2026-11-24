@@ -66,17 +66,6 @@ briefing:
   email_to: [me]           # "me" = the connected Gmail mailbox; add other addresses as needed
   # output_dir: ../data/briefings
 
-# Specialists Gabe can hand work to. `tools` limits what each one can use.
-delegates:
-  scheduler:
-    description: Plans deadlines, reviews workloads and chases overdue tasks.
-    instructions: |
-      You own the task list. Check the current time first, then review tasks for
-      what is overdue, due soon, unowned or blocked, and propose concrete fixes.
-    tools: [get_current_time, list_tasks, update_task, create_task]
-  comms:
-    description: Drafts and sends internal and external communications.
-    instructions: |
-      Write in the company's voice: plain, warm, brief. Check memory for context on
-      recipients before writing.
-    tools: [recall, search_email, read_email, draft_email, send_email]
+# Gabe's team: the assistants Gabe can hand work to, and who they hand work to.
+# Edit it from the Team page (`gabe ui`) or by hand. See config/team.yaml.
+team_file: team.yaml

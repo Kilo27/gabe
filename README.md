@@ -23,6 +23,7 @@ gabe -m "Give me the weekly brief"  # one-shot
 gabe brief                          # today's daily briefing (saved to data/briefings/)
 gabe schedule                       # run the briefing every weekday at the configured time
 gabe auth gmail                     # connect Gmail (see docs/GMAIL_SETUP.md)
+gabe ui                             # open the Team page in your browser
 gabe --unattended -m "..."          # refuses anything that needs approval
 pytest                              # tests use a scripted provider, no API calls
 ```
@@ -35,7 +36,7 @@ pytest                              # tests use a scripted provider, no API call
 | Playbooks | `config/playbooks/*.md` | How *this* company does things (SOPs Gabe follows) |
 | Integrations | `integrations:` | Which systems Gabe can touch; custom ones load by module path |
 | Policy | `policy:` | What runs unattended, what needs a human, what's blocked |
-| Delegates | `delegates:` | Specialist sub-agents with their own instructions and tool subsets |
+| Team | `team_file:` (`config/team.yaml`) | A hierarchy of assistants under Gabe, each with a job, skills and freedom level. Edited from `gabe ui` |
 | Model | `provider:` | Anthropic API now; local OpenAI-compatible server (GLM) later |
 
 ### Writing an integration
@@ -99,6 +100,42 @@ On macOS, `scripts/install_launchd.sh` installs a LaunchAgent that runs `gabe br
 at `briefing.time` on `briefing.days`, using the Mac's local timezone. A run missed
 while the Mac was asleep fires when it wakes. Logs go to `data/logs/`. Re-run the
 script after changing the schedule, or run `scripts/install_launchd.sh uninstall` to remove it.
+
+## Gabe's team
+
+Gabe can hand work to a team of AI assistants arranged like an org chart. Gabe is at
+the top; each member reports to Gabe or to another member, and can hand work to its own
+direct reports (up to 4 levels deep). The example team in `config/team.yaml`:
+
+```
+Gabe
+├── Operations lead ── Scheduler
+└── Communications ─── Inbox triage
+```
+
+`gabe ui` opens a local page (http://127.0.0.1:8765, this machine only) written for
+people who don't read code:
+
+- **Team**: the org chart. Click anyone to see a plain-English summary ("reports to
+  Gabe, can do 3 things on their own and will ask you before 1"), and change their
+  name, job, instructions, manager, skills and freedom level. You can also pause or
+  remove them. Changes save to `config/team.yaml`.
+- **Ask Gabe**: send a request and watch each hand-off live ("Gabe asked Operations
+  lead to help", "Scheduler created a task..."). Actions that need a person show up as
+  cards with **Approve** / **Decline**, and the run waits until you answer.
+- **What happened**: the audit log in plain English, with the chain of who asked whom.
+
+Controls, and how they combine:
+
+| Control | Effect |
+|---|---|
+| Working / Paused | A paused member, and everyone under them, gets no work. |
+| Skills | The tools a member may use. Skills from a connection that isn't set up are skipped and flagged on the page. |
+| Freedom level | `look_only` (can't change or send anything), `ask_first` (asks before any change), `standard` (asks before contacting anyone outside), `trusted` (company rules only). It can only make a member **more** careful than `policy:`, never less. |
+| Reports to | Only a member's manager can hand it work. Loops and chains deeper than 4 are refused. |
+
+Older configs with `delegates:` still work: every delegate reports straight to Gabe.
+Move them into a team file to edit them from the page.
 
 ## Planned
 
