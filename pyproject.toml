@@ -13,7 +13,8 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 web = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
-desktop = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "pywebview>=6", "keyring>=25"]
+desktop = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "pywebview>=6", "keyring>=25",
+           "pyobjc-framework-UserNotifications>=11; sys_platform == 'darwin'"]
 build = ["pyinstaller>=6.16"]
 gmail = ["google-api-python-client>=2.100", "google-auth-oauthlib>=1.2"]
 

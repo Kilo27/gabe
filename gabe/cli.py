@@ -28,6 +28,19 @@ def terminal_approver(tool: Tool, args: dict[str, Any]) -> bool:
         return False
 
 
+def terminal_asker(agent: str, question: str, choices: list) -> str:
+    print(f"\n{BOLD}{agent} asks:{RESET} {question}")
+    for i, c in enumerate(choices, 1):
+        print(f"  {i}. {c}")
+    try:
+        answer = input("Your answer: ").strip()
+    except EOFError:
+        return ""
+    if answer.isdigit() and 1 <= int(answer) <= len(choices):
+        return choices[int(answer) - 1]
+    return answer
+
+
 def print_event(kind: str, data: dict[str, Any]) -> None:
     indent = "  " * len(data.get("path") or [None])
     if kind == "tool" and data["tool"] != "delegate":
@@ -63,6 +76,7 @@ def _chat(cfg, args) -> int:
     gabe = build_gabe(
         cfg,
         approver=deny_all if args.unattended else terminal_approver,
+        **({} if args.unattended else {"asker": terminal_asker}),
         on_event=print_event,
         user=args.user,
     )

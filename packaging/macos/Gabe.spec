@@ -9,7 +9,8 @@ hidden = (
     collect_submodules("gabe")            # integrations are imported by name at runtime
     + collect_submodules("uvicorn")
     + collect_submodules("keyring.backends")
-    + ["googleapiclient.discovery", "google_auth_oauthlib.flow"]
+    + ["googleapiclient.discovery", "google_auth_oauthlib.flow",
+       "UserNotifications", "AppKit", "Foundation", "PyObjCTools.AppHelper"]  # notifications, Dock badge
 )
 datas = (
     [(os.path.join(ROOT, "gabe", "web", "static"), "gabe/web/static"),

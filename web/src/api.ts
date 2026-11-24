@@ -89,7 +89,8 @@ export type TaskStatus = "open" | "in_progress" | "blocked" | "done" | "cancelle
 export type Note = { id: string; topic: string; note: string; tags: string[]; created: string; edited?: string };
 
 export type Approval = {
-  id: string; status: "pending" | "approved" | "rejected" | "expired"; created: string; decided: string | null;
+  kind?: "approval" | "question"; answer?: string;
+  id: string; status: "pending" | "approved" | "rejected" | "expired" | "answered"; created: string; decided: string | null;
   session_id: string; session_title: string; tool: string; risk: string; integration: string; description: string;
   args: Record<string, any>; original_args?: Record<string, any>; reason: string; note: string; edited: boolean;
   decided_by?: string; live?: boolean; agent?: string;
@@ -133,7 +134,7 @@ export type Agent = {
   tools: string[]; all_tools?: boolean; paused: boolean; held: boolean; freedom: string | null;
   rules: Record<string, Decision>; decisions: Record<string, Decision>;
   reports_to: string; status: AgentStatus; now: AgentNow | null; handed_by: string | null; session: string | null;
-  waiting: string[]; never_used?: boolean; today: { done: number; problems: number; total: number };
+  waiting: string[]; asking?: boolean; never_used?: boolean; today: { done: number; problems: number; total: number };
 };
 export type TimelineItem = { ts: string; minute: number; tool: string; outcome: string; input: any };
 export type Proposal = { role: string; name: string; description: string; instructions: string; tools: string[]; reports_to: string; freedom: string };

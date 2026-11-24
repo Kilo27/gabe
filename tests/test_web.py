@@ -130,3 +130,35 @@ def test_edited_specialists_are_left_alone(tmp_path):
     (cfg_dir / "gabe.yaml").write_text(yaml.safe_dump(old))
     ensure_config(tmp_path)
     assert "mine" in yaml.safe_load((cfg_dir / "gabe.yaml").read_text())["delegates"]
+
+
+def test_bot_question_waits_for_an_answer_from_the_app(config_file, monkeypatch):
+    c, _ = _client(config_file, monkeypatch, [
+        StepResult("", [ToolCall("1", "ask_user", {"question": "Which client first?", "choices": ["Acme", "Beta"]})], "tool_use"),
+        StepResult("Starting with Beta.", [], "done"),
+    ])
+    sid = c.post("/api/sessions", json={"text": "chase invoices"}).json()["id"]
+    q = _wait(lambda: [a for a in c.get("/api/approvals").json() if a["status"] == "pending"])[0]
+    assert q["kind"] == "question" and q["args"]["choices"] == ["Acme", "Beta"] and q["agent"] == "Gabe"
+    gabe = next(a for a in c.get("/api/agents").json()["agents"] if a["id"] == "chief")
+    assert gabe["status"] == "waiting" and gabe["asking"]
+    assert c.post(f"/api/approvals/{q['id']}", json={"answer": ""}).status_code == 400
+    assert c.post(f"/api/approvals/{q['id']}", json={"answer": "Beta"}).json()["status"] == "answered"
+    msg = _wait(lambda: (m := c.get(f"/api/sessions/{sid}").json()["messages"][-1])["status"] == "done" and m)
+    assert msg["text"] == "Starting with Beta."
+
+
+def test_unattended_questions_get_told_to_assume():
+    from gabe.app import NOBODY_TO_ASK, no_one_to_ask
+
+    assert no_one_to_ask("Gabe", "x?", []) == NOBODY_TO_ASK
+
+
+def test_notification_text_says_who_and_what():
+    from gabe.desktop import describe_request
+
+    assert describe_request({"kind": "question", "agent": "Scheduler", "args": {"question": "Move the deadline?"}}) == (
+        "Scheduler has a question", "Move the deadline?")
+    title, body = describe_request({"agent": "Communications", "tool": "send_email",
+                                    "args": {"to": ["a@b.co"], "subject": "Hi"}})
+    assert title == "Communications needs your OK" and body == "Send an email to a@b.co: Hi"

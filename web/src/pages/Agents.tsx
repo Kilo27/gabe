@@ -221,7 +221,7 @@ function Card({ a, boss, onOpen }: { a: Hued; boss?: Hued; onOpen: () => void })
 
       {a.waiting.length > 0 && (
         <button className="btn btn-sm agent-review" onClick={onOpen}>
-          <ShieldAlert size={15} /> Review {a.waiting.length === 1 ? "request" : `${a.waiting.length} requests`}
+          <ShieldAlert size={15} /> {a.asking ? "Answer" : "Review"} {a.waiting.length === 1 ? (a.asking ? "question" : "request") : `${a.waiting.length} items`}
         </button>
       )}
 

@@ -31,7 +31,7 @@ def test_gabe_only_keeps_lookup_tools_and_delegates_the_rest(config_file):
     cfg.delegates[0].tools = None  # the team can do everything
     p = ScriptedProvider([done("hi")])
     build_gabe(cfg, provider=p).send("hello")
-    assert p.systems[0][1] == ["add_team_member", "delegate", "get_current_time", "recall"]
+    assert p.systems[0][1] == ["add_team_member", "ask_user", "delegate", "get_current_time", "recall"]
 
 
 def test_gabe_keeps_actions_nobody_on_the_team_can_do(config_file):
@@ -60,7 +60,7 @@ def test_own_tools_is_configurable(config_file):
     cfg.own_tools = ["list_tasks", "not_loaded"]
     p = ScriptedProvider([done("hi")])
     build_gabe(cfg, provider=p).send("hello")
-    assert p.systems[0][1] == ["add_team_member", "delegate", "list_tasks"]
+    assert p.systems[0][1] == ["add_team_member", "ask_user", "delegate", "list_tasks"]
 
 
 def test_without_delegates_gabe_keeps_every_tool(config_file):
@@ -152,7 +152,7 @@ def test_delegate_runs_specialist_with_restricted_tools(config_file):
     ])
     gabe = build_gabe(load_config(config_file), provider=p)
     assert gabe.send("what is Sam doing?") == "Sam is clear."
-    assert p.systems[1][1] == ["create_task", "list_tasks"]
+    assert p.systems[1][1] == ["ask_user", "create_task", "list_tasks"]
     assert "Sam has no tasks." in results(p)[1][0].content
 
 

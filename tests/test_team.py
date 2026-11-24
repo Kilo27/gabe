@@ -55,8 +55,8 @@ def test_two_level_handoff_carries_the_chain(team_config):
     # Gabe sees only direct reports; ops sees only the scheduler.
     tools_by_agent = [t for _, t in p.systems]
     assert sorted(m.id for m in team_config.team().reports("chief")) == ["careful", "ops", "watcher", "wild"]
-    assert tools_by_agent[1] == ["delegate", "list_tasks"]
-    assert tools_by_agent[2] == ["create_task", "list_tasks"]
+    assert tools_by_agent[1] == ["ask_user", "delegate", "list_tasks"]
+    assert tools_by_agent[2] == ["ask_user", "create_task", "list_tasks"]
     assert "You report to Operations lead" in p.systems[2][0]
     tool_ev = next(d for k, d in events if k == "tool" and d["tool"] == "create_task")
     assert tool_ev["path"] == ["Gabe", "Operations lead", "Scheduler"]
@@ -221,7 +221,7 @@ def test_skill_from_an_unconnected_integration_is_skipped_not_fatal(team_config)
     save_team(team_config.team_file, team)
     p = ScriptedProvider([delegate("ops"), done("ok"), done("ok")])
     build_gabe(team_config, provider=p).send("go")
-    assert p.systems[1][1] == ["delegate", "list_tasks"]
+    assert p.systems[1][1] == ["ask_user", "delegate", "list_tasks"]
 
 
 # ---- bots adding bots -------------------------------------------------------------

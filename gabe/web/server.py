@@ -312,6 +312,14 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
         rec = state.approvals.get(aid)
         if not rec:
             bad("That request doesn't exist.", 404)
+        if rec.get("kind") == "question":
+            text = str(payload.get("answer", "")).strip()
+            if not text:
+                bad("Type an answer first.")
+            try:
+                return state.approvals.answer(aid, text, PERSON)
+            except ValueError as e:
+                bad(str(e), 409)
         approve = payload.get("decision") == "approve"
         args = payload.get("args")
         if approve and args is not None:
@@ -945,6 +953,7 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
             r["handed_by"] = "you" if handed == "you" else by_log.get(handed) if handed else None
             r["session"] = lv.get("session")
             r["waiting"] = [a["id"] for a in waits]
+            r["asking"] = any(a.get("kind") == "question" for a in waits)
             r["never_used"] = r["kind"] == "member" and r["id"] not in ever and not working
             items = timeline[r["id"]]
             r["today"] = {"done": sum(1 for i in items if i["outcome"] == "ok"),

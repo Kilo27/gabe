@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Callable
+
 from gabe.agent import Agent, EventHandler, _ignore
 from gabe.audit import AuditLog
 from gabe.config import Config
@@ -44,6 +46,45 @@ def overlaps(name: str, job: str, member: Member) -> bool:
     return bool(ja and jb) and len(ja & jb) / len(ja | jb) >= 0.35
 
 
+# Called when an agent asks the user something: (agent name, question, choices) -> the answer.
+Asker = Callable[[str, str, list], str]
+
+NOBODY_TO_ASK = ("Nobody is available to answer right now. Make a reasonable assumption, say what you "
+                 "assumed, and carry on.")
+
+
+def no_one_to_ask(agent: str, question: str, choices: list) -> str:
+    """Asker for unattended runs."""
+    return NOBODY_TO_ASK
+
+
+def ask_tool(name: str, asker: Asker) -> Tool:
+    """`ask_user`: put a question to the person in charge and wait for their answer."""
+    def ask_user(question: str, choices: list | None = None) -> str:
+        answer = asker(name, question.strip(), [str(c) for c in (choices or []) if str(c).strip()])
+        return answer if answer.strip() else "(The user replied without an answer.)"
+
+    return Tool(
+        name="ask_user",
+        description=(
+            "Ask the user a question and wait for their answer. They are notified. Use it only when "
+            "you're blocked on something only a person can decide or tell you; one clear question, "
+            "with choices if there are obvious options."
+        ),
+        input_schema=schema(
+            {
+                "question": {"type": "string", "description": "The question, complete enough to answer cold."},
+                "choices": {"type": "array", "items": {"type": "string"},
+                            "description": "Optional quick answers to offer (they can still type their own)."},
+            },
+            required=["question"],
+        ),
+        handler=ask_user,
+        risk=Risk.READ,
+        integration="people",
+    )
+
+
 def base_registry(cfg: Config) -> ToolRegistry:
     """Every tool the company's integrations provide (no delegation)."""
     registry = ToolRegistry()
@@ -81,6 +122,7 @@ def build_gabe(
     user: str | None = None,
     task: str = "chat",
     member: str | None = None,
+    asker: Asker = no_one_to_ask,
 ) -> Agent:
     """Gabe, the chief of staff. With `member`, that team member on its own (a job given to
     it directly), still able to hand work to its own reports."""
@@ -193,8 +235,8 @@ def build_gabe(
                 "member covers. Not for a single task or a project's to-do list: for those, delegate to the "
                 "closest existing member. Put it under the member whose area the work belongs to (e.g. "
                 "email work under whoever does communications); report to yourself only when it starts a "
-                "genuinely new area. Team members can't ask questions or wait for replies, so write "
-                "instructions they can act on alone. It starts on first_task straight away. A person "
+                "genuinely new area. Write instructions it can act on alone (it can ask the user with "
+                "ask_user only when truly blocked). It starts on first_task straight away. A person "
                 "approves it first.\nCurrent team (id: name (reports to). job):\n" + (roster or "- nobody yet")
             ),
             input_schema=schema(
@@ -266,6 +308,7 @@ def build_gabe(
         manager = manager_path[-1]
         hires = can_hire(member)
         registry = tools.subset(skills_of(member))
+        registry.register(ask_tool(member.name, asker))
         if hires:
             registry.register(hire_tool(member, path))
         return Agent(
@@ -291,6 +334,7 @@ def build_gabe(
         return build_member(m, ("the user",))
     chief_reports = team.reports(CHIEF_ID)
     registry = tools.subset(chief_tools(cfg, team, available))
+    registry.register(ask_tool(cfg.assistant_name, asker))
     registry.register(hire_tool(None, top))  # Gabe can always grow the team, with a person's OK
     return Agent(
         name=cfg.assistant_name,

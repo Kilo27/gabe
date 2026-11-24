@@ -82,7 +82,7 @@ class ApprovalQueue:
         return sum(1 for a in self.store.load()["approvals"] if a["status"] == "pending")
 
     def create(self, **fields: Any) -> dict[str, Any]:
-        rec = {"id": new_id(), "status": "pending", "created": now(), "decided": None,
+        rec = {"id": new_id(), "kind": "approval", "status": "pending", "created": now(), "decided": None,
                "note": "", "edited": False, **fields}
         with self._guard:
             self._events[rec["id"]] = threading.Event()
@@ -99,6 +99,24 @@ class ApprovalQueue:
     def is_live(self, approval_id: str) -> bool:
         with self._guard:
             return approval_id in self._events
+
+    def answer(self, approval_id: str, text: str, by: str) -> dict:
+        """Answer a question from Gabe or a bot; the waiting run carries on with it."""
+        def upd(d):
+            for a in d["approvals"]:
+                if a["id"] == approval_id:
+                    if a["status"] != "pending":
+                        raise ValueError("This question has already been answered.")
+                    a.update(status="answered", answer=text, decided=now(), decided_by=by)
+                    return a
+            raise KeyError(approval_id)
+
+        rec = self.store.update(upd)
+        with self._guard:
+            ev = self._events.get(approval_id)
+        if ev:
+            ev.set()
+        return rec
 
     def decide(self, approval_id: str, approve: bool, args: dict | None, note: str, by: str) -> dict:
         def upd(d):
@@ -259,7 +277,28 @@ class Sessions:
                     return True
                 return Declined(decided.get("note", ""))
 
-            agent = build_gabe(cfg, approver=approver, on_event=on_event, member=member)
+            def asker(agent_name: str, question: str, choices: list) -> str:
+                """A question from Gabe or a bot: queued with the approvals, waits for an answer."""
+                live = holder["live"]
+                session = self._store(sid).load()
+                rec = self.app.approvals.create(
+                    kind="question", session_id=sid, message_id=live.message_id,
+                    session_title=session.get("title", ""), agent=agent_name, tool="ask_user",
+                    risk="read", integration="people", description="",
+                    args={"question": question, "choices": choices}, reason="",
+                )
+
+                def waiting(m):
+                    m["status"] = "waiting"
+                    m["activity"].append({"kind": "approval", "approval_id": rec["id"], "tool": "ask_user", "ts": now()})
+                self._patch_message(sid, live.message_id, waiting)
+                answered = self.app.approvals.wait(rec["id"])
+                self._patch_message(sid, live.message_id, lambda m: m.update(status="working"))
+                if answered.get("status") == "answered":
+                    return answered.get("answer", "")
+                return "The user didn't answer. Make a reasonable assumption, say what you assumed, and carry on."
+
+            agent = build_gabe(cfg, approver=approver, on_event=on_event, member=member, asker=asker)
             live = _Live(agent=agent)
             holder["live"] = live
             self._live[sid] = live

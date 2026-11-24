@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, Loader2, MessageCircle, Pencil, ShieldAlert, X } from "lucide-react";
+import { Check, Loader2, MessageCircle, MessageCircleQuestion, Pencil, ShieldAlert, X } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Approval } from "../api";
@@ -126,7 +126,72 @@ function Editor({ a, value, onChange }: { a: Approval; value: Record<string, any
   );
 }
 
+/** A question from Gabe or a bot. Quick-answer buttons when it offered choices, or type a reply. */
+function QuestionCard({ a, compact }: { a: Approval; compact?: boolean }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [text, setText] = useState("");
+  const pending = a.status === "pending";
+  const who = a.agent || "Gabe";
+  const send = useMutation({
+    mutationFn: (answer: string) => api.post<Approval>(`/api/approvals/${a.id}`, { answer }),
+    onSuccess: () => {
+      toast("Answer sent", "ask");
+      setText("");
+      qc.invalidateQueries({ queryKey: ["approvals"] });
+      qc.invalidateQueries({ queryKey: ["overview"] });
+      qc.invalidateQueries({ queryKey: ["agents"] });
+      qc.invalidateQueries({ queryKey: ["session"] });
+    },
+    onError: (e: Error) => toast(e.message, "danger"),
+  });
+  const choices: string[] = a.args.choices ?? [];
+  return (
+    <article className={`approval question${compact ? " approval-compact" : ""}`} data-area="ask" data-status={a.status}>
+      <header className="approval-head">
+        <div className="approval-icon question-icon" aria-hidden><MessageCircleQuestion size={20} /></div>
+        <div className="grow">
+          <h3>{who} has a question</h3>
+          <p className="faint">{when(a.created)}</p>
+        </div>
+        {pending ? <Chip hue="ask" solid dot>Waiting for you</Chip>
+          : a.status === "answered" ? <Chip hue="tasks" dot>Answered</Chip> : <Chip hue="neutral" dot>Expired</Chip>}
+      </header>
+      <div className="approval-body"><p className="question-text">{a.args.question}</p></div>
+      {pending ? (
+        <form className="approval-body stack" style={{ gap: 10 }} onSubmit={(e) => { e.preventDefault(); if (text.trim()) send.mutate(text.trim()); }}>
+          {choices.length > 0 && (
+            <div className="row" style={{ gap: 8 }}>
+              {choices.map((c) => (
+                <button key={c} type="button" className="btn btn-sm" disabled={send.isPending} onClick={() => send.mutate(c)}>{c}</button>
+              ))}
+            </div>
+          )}
+          <div className="row" style={{ flexWrap: "nowrap" }}>
+            <input className="input grow" value={text} onChange={(e) => setText(e.target.value)} placeholder={choices.length ? "Or type your own answer" : "Type your answer"} aria-label={`Answer ${who}`} />
+            <button className="btn btn-primary" disabled={!text.trim() || send.isPending}>Send</button>
+          </div>
+        </form>
+      ) : (
+        <div className="approval-why">
+          {a.status === "answered" ? <>You answered: “{a.answer}”</> : "Expired when the app restarted. Not answered."}
+        </div>
+      )}
+      {!compact && a.session_id && (
+        <footer className="approval-foot">
+          <Link to={`/ask/${a.session_id}`} className="btn btn-ghost btn-sm"><MessageCircle size={15} /> Conversation</Link>
+        </footer>
+      )}
+    </article>
+  );
+}
+
 export function ApprovalCard({ a, compact }: { a: Approval; compact?: boolean }) {
+  if (a.kind === "question") return <QuestionCard a={a} compact={compact} />;
+  return <ApprovalDecision a={a} compact={compact} />;
+}
+
+function ApprovalDecision({ a, compact }: { a: Approval; compact?: boolean }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [modeState, setMode] = useState<"view" | "edit" | "reject">("view");

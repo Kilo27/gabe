@@ -728,3 +728,16 @@ li[data-unread="true"] .mail-from::before { background: var(--inbox); }
 .node[data-never][data-status="idle"] { border-style: dashed; }
 .node[data-never][data-status="idle"] .node-now { color: var(--activity-ink); }
 .agent-state[data-never] { background: color-mix(in oklab, var(--activity) 22%, var(--panel)); color: var(--activity-ink); }
+
+/* Questions and approvals that just arrived: a banner across the top of the page. */
+.needs-banner {
+  position: sticky; top: 12px; z-index: 40; max-width: 1240px; margin: -8px auto 18px;
+  display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px;
+  background: var(--raised); border: 1.5px solid var(--hue); box-shadow: var(--shadow-pop);
+  animation: toast-in 260ms var(--ease);
+}
+.needs-banner-icon { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--hue); color: var(--on-fill); flex: none; }
+.needs-banner-text { color: var(--ink-2); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.question-icon { background: var(--ask); }
+.approval.question[data-status="pending"] { border-color: color-mix(in oklab, var(--ask) 55%, var(--line)); box-shadow: 0 0 0 3px color-mix(in oklab, var(--ask) 16%, transparent), var(--shadow); }
+.question-text { font-size: 16px; font-weight: 600; white-space: pre-wrap; }

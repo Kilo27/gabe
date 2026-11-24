@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
-import { Monitor, Moon, MoreHorizontal, Sun } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
-import { NavLink, useLocation } from "react-router-dom";
-import { api, type Overview } from "../api";
+import { MessageCircleQuestion, Monitor, Moon, MoreHorizontal, ShieldCheck, Sun, X } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { api, type Approval, type Overview } from "../api";
 import { AREAS, type Area } from "../lib/areas";
 
 type Theme = "system" | "light" | "dark";
@@ -54,6 +54,45 @@ function NavItem({ id, onClick, short }: { id: Area; onClick?: () => void; short
   );
 }
 
+/** Watches for new questions and approvals and announces each one once. */
+function NeedsYouWatcher() {
+  const nav = useNavigate();
+  const seen = useRef<Set<string> | null>(null);
+  const [notice, setNotice] = useState<Approval | null>(null);
+  const { data } = useQuery({ queryKey: ["approvals"], queryFn: () => api.get<Approval[]>("/api/approvals"), refetchInterval: 2500, refetchIntervalInBackground: true });
+  const pending = (data ?? []).filter((a) => a.status === "pending");
+  useEffect(() => {
+    if (!data) return;
+    if (seen.current === null) { seen.current = new Set(pending.map((a) => a.id)); return; }
+    const fresh = pending.filter((a) => !seen.current!.has(a.id));
+    fresh.forEach((a) => seen.current!.add(a.id));
+    if (fresh.length) setNotice(fresh[fresh.length - 1]);
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const base = document.title.replace(/^\(\d+\) /, "");
+    document.title = pending.length ? `(${pending.length}) ${base}` : base;
+  });
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 12000);
+    return () => clearTimeout(t);
+  }, [notice]);
+  if (!notice || !pending.some((a) => a.id === notice.id)) return null;  // gone once answered
+  const q = notice.kind === "question";
+  const who = notice.agent || "Gabe";
+  return (
+    <div className="needs-banner" role="alert" data-area={q ? "ask" : "approvals"}>
+      <span className="needs-banner-icon">{q ? <MessageCircleQuestion size={18} /> : <ShieldCheck size={18} />}</span>
+      <div className="grow">
+        <strong>{q ? `${who} has a question` : `${who} needs your OK`}</strong>
+        <div className="needs-banner-text">{q ? notice.args.question : notice.session_title}</div>
+      </div>
+      <button className="btn btn-primary btn-sm" onClick={() => { setNotice(null); nav("/approvals"); }}>{q ? "Answer" : "Review"}</button>
+      <button className="btn btn-ghost btn-sm btn-icon" aria-label="Dismiss" onClick={() => setNotice(null)}><X size={16} /></button>
+    </div>
+  );
+}
+
 const PRIMARY: Area[] = ["ask", "today", "approvals", "tasks"];
 
 export function Shell({ children }: { children: ReactNode }) {
@@ -101,6 +140,7 @@ export function Shell({ children }: { children: ReactNode }) {
       </aside>
 
       <main className="main">
+        <NeedsYouWatcher />
         <div className="page">{children}</div>
       </main>
 
