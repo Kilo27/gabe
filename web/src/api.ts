@@ -128,6 +128,7 @@ export type Settings = {
   usage: { date: string; input: number; output: number; cached: number; steps: number }[];
   config_path: string;
   desktop: boolean;
+  claude_code: { installed: boolean; folder: string };
 };
 
 export type AgentStatus = "idle" | "working" | "waiting" | "paused";

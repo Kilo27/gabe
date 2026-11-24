@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Loader2, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ExternalLink, Loader2, Plus, SquareTerminal, Trash2 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { NavLink, useParams } from "react-router-dom";
 import { GoogleButton } from "../components/GoogleButton";
-import { api, type Decision, type Job, type Settings } from "../api";
+import { api, native, type Decision, type Job, type Settings } from "../api";
 import { Field, Markdown, Notice, PageHeader, Segmented, SkeletonList, useToast } from "../components/ui";
 import { DECISION_WORDS, RISK, humanize, tool } from "../lib/tools";
 
@@ -14,6 +14,7 @@ const TABS = [
   ["email", "Email"],
   ["connections", "Connections"],
   ["playbooks", "Playbooks"],
+  ["customize", "Customize"],
   ["model", "API key"],
 ] as const;
 type Tab = (typeof TABS)[number][0];
@@ -241,6 +242,33 @@ function Connections({ s }: { s: Settings }) {
   );
 }
 
+const CLAUDE_CODE_URL = "https://claude.com/claude-code";
+
+function Customize({ s }: { s: Settings }) {
+  const toast = useToast();
+  const open = useMutation({
+    mutationFn: () => api.post("/api/claude-code/open"),
+    onError: (e: Error) => toast(e.message, "danger"),
+  });
+  const get = () => (native() ? native()!.open_url(CLAUDE_CODE_URL) : window.open(CLAUDE_CODE_URL, "_blank", "noopener"));
+  return (
+    <Section title="Claude Code">
+      {s.claude_code.installed ? (
+        <div className="row" style={{ flexWrap: "nowrap" }}>
+          <code className="grow faint" style={{ overflowWrap: "anywhere" }}>{s.claude_code.folder}</code>
+          <button className="btn btn-primary" onClick={() => open.mutate()} disabled={open.isPending}>
+            <SquareTerminal size={15} /> Open in Claude Code
+          </button>
+        </div>
+      ) : (
+        <Notice hue="settings" icon={AlertTriangle} title="Claude Code isn't installed" action={
+          <button className="btn btn-sm" onClick={get}><ExternalLink size={15} /> Get Claude Code</button>
+        } />
+      )}
+    </Section>
+  );
+}
+
 function Playbooks({ s }: { s: Settings }) {
   const qc = useQueryClient();
   const toast = useToast();
@@ -338,7 +366,7 @@ function Model({ s }: { s: Settings }) {
 export default function SettingsPage() {
   const { tab = "company" } = useParams<{ tab: Tab }>();
   const { data, isLoading, error } = useQuery({ queryKey: ["settings"], queryFn: () => api.get<Settings>("/api/settings") });
-  const Body = { company: Company, brief: Brief, rules: Rules, email: Email, connections: Connections, playbooks: Playbooks, model: Model }[tab as Tab] ?? Company;
+  const Body = { company: Company, brief: Brief, rules: Rules, email: Email, connections: Connections, playbooks: Playbooks, customize: Customize, model: Model }[tab as Tab] ?? Company;
   return (
     <>
       <PageHeader area="settings" />

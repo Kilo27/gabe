@@ -154,6 +154,26 @@ Plug in existing MCP servers (Notion, Linear, Slack, Google Calendar...) with
   `PATH` in `env` (e.g. `/opt/homebrew/bin:/usr/bin:/bin` for `npx`).
 - Remote servers take bearer headers only; OAuth sign-in isn't supported yet.
 
+## Changing your Gabe with Claude Code
+
+Everything that makes an installation yours lives in its config folder
+(`~/Library/Application Support/Gabe/config/` for the app): settings, team, playbooks,
+and your own integrations as Python files in `integrations/` (listed by name under
+`integrations:`; a broken one is skipped, never fatal). Gabe rereads the folder on every
+request, so edits apply at once. Gabe writes a `CLAUDE.md` there explaining the format to
+Claude Code (your own notes go in `CLAUDE.local.md`).
+
+- **Settings → Customize → Open in Claude Code** opens Terminal running `claude` in that
+  folder. Ask for what you want ("connect our Linear", "add a bot that chases invoices").
+- **Ask Gabe**: with the `claude_code` integration, Gabe has a `change_gabe` action that
+  hands the request to Claude Code. Every request needs a person's OK. Claude Code runs
+  restricted (no shell, only that folder); the folder is backed up to
+  `data/claude_code/backups/` first and checked after; a change that fails the check gets
+  one fix-up, then is undone. It uses your own Claude Code sign-in unless
+  `use_gabe_api_key: true`. Not offered when Claude Code isn't installed.
+- `gabe check` (in the app: `Gabe.app/Contents/MacOS/Gabe check`) checks the folder after
+  any edit.
+
 ## Daily briefing
 
 `gabe brief` runs a **read-only** Gabe. It can look at tasks, notes and email, but it

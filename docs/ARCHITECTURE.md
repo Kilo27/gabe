@@ -73,6 +73,15 @@ reuses live sessions keyed by a hash of each server's connection config, reconne
 ones, closes removed ones, and skips (logs) servers that fail. Status per server shows
 in Settings → Connections.
 
+**Changing an installation.** An installation is its config folder; Gabe's code never
+changes. Companies extend it with local integration files (`integrations/<name>.py`,
+re-imported when they change; failures are skipped and reported) and edit it with Claude
+Code, either in a Terminal opened from Settings or through the `change_gabe` action
+(`gabe/integrations/claude_code.py`), which runs `claude -p --restricted` in the folder
+under an `ask_first` approval, with a backup, `gabe check` (`gabe/check.py`) afterwards,
+one fix-up round, and automatic undo. Claude Code is optional: nothing else depends on it,
+so a local-model deployment loses only this action.
+
 **Desktop app.** The team is edited and watched from the app's Agents screen
 (`gabe/web/server.py`, `/api/agents`); see the README's Desktop app section. Approvals block
 the run's thread until someone decides in the app (approve, edit then approve, or decline

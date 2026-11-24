@@ -51,6 +51,10 @@ integrations:
     settings:
       backend: gmail       # gmail | outbox (outbox writes to data/email/outbox, sends nothing)
       credentials_file: gmail_client_secret.json   # OAuth client from Google Cloud; see docs/GMAIL_SETUP.md
+  # Gabe changes its own setup (rules, team, playbooks, integrations) by handing the request
+  # to Claude Code, after a person approves. Skipped when Claude Code isn't installed.
+  - claude_code
+  #   settings: {model: sonnet, timeout: 600, max_budget_usd: 2, use_gabe_api_key: false}
   # MCP servers: each server's tools become actions named <server>__<tool>.
   # Needs `pip install 'gabe[mcp]'`. Tools are `external` unless set otherwise below;
   # policy.integrations takes the server name (e.g. {notion: ask}).

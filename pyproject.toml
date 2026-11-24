@@ -31,4 +31,4 @@ include = ["gabe*"]
 
 [tool.setuptools.package-data]
 "gabe.web" = ["static/**/*"]
-"gabe" = ["defaults/*.yaml"]
+"gabe" = ["defaults/*.yaml", "defaults/*.md"]

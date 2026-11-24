@@ -26,6 +26,7 @@ integrations:
     settings:
       backend: gmail
       credentials_file: gmail_client_secret.json
+  - claude_code            # Gabe can change its own setup via Claude Code, with your OK (if installed)
   # MCP servers (tools become <server>__<tool>; external unless set otherwise):
   # - name: mcp
   #   settings:
