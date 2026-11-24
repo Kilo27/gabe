@@ -11,8 +11,8 @@ from gabe.integrations import load_integrations
 from gabe.policy import Approver, Policy, deny_all
 from gabe.prompts import chief_of_staff_prompt, delegate_prompt
 from gabe.providers import Provider, make_provider
-from gabe.team import (CHIEF_ID, DEFAULT_FREEDOM, FREEDOM_ORDER, Member, Team, TeamError,
-                       ensure_team_file, load_team, make_id, save_team)
+from gabe.team import (CHIEF_ID, DEFAULT_FREEDOM, DEFAULT_TIER, FREEDOM_ORDER, MODEL_TIERS, Member, Team,
+                       TeamError, ensure_team_file, load_team, make_id, save_team)
 from gabe.tools.registry import Risk, Tool, ToolRegistry, schema
 from gabe.usage import UsageLog, resolve_user
 
@@ -58,6 +58,19 @@ def no_one_to_ask(agent: str, question: str, choices: list) -> str:
     return NOBODY_TO_ASK
 
 
+def run_handed_off(agent: Agent, task: str, on_event: EventHandler, by: tuple[str, ...]) -> str:
+    """Run a job handed down to a team member. A failure is announced (so it is never silent)
+    and raised, so the manager gets it back as an error to deal with."""
+    try:
+        report = agent.send(task)
+    except Exception as e:
+        on_event("failed", {"agent": agent.name, "path": list(agent.path), "by": by[-1], "task": task,
+                            "error": f"{e}" or type(e).__name__})
+        raise
+    on_event("report", {"agent": agent.name, "path": list(agent.path), "text": report})
+    return report
+
+
 def ask_tool(name: str, asker: Asker) -> Tool:
     """`ask_user`: put a question to the person in charge and wait for their answer."""
     def ask_user(question: str, choices: list | None = None) -> str:
@@ -69,7 +82,8 @@ def ask_tool(name: str, asker: Asker) -> Tool:
         description=(
             "Ask the user a question and wait for their answer. They are notified. Use it only when "
             "you're blocked on something only a person can decide or tell you; one clear question, "
-            "with choices if there are obvious options."
+            "with choices if there are obvious options. Never use it to confirm an action: actions "
+            "that need a person's OK (like sending email) already ask for it."
         ),
         input_schema=schema(
             {
@@ -154,7 +168,11 @@ def build_gabe(
                 todo.append(m.id)
         return out
 
-    def hire_tool(creator: Member | None, path: tuple[str, ...]) -> Tool:
+    def tiers_up_to(tier: str | None) -> list[str]:
+        """Models an agent may hand to others: up to its own (Gabe, with None: any)."""
+        return MODEL_TIERS[: MODEL_TIERS.index(tier) + 1] if tier else list(MODEL_TIERS)
+
+    def hire_tool(creator: Member | None, path: tuple[str, ...], creator_tier: str | None = None) -> Tool:
         """`add_team_member` for one agent. It can only add bots under itself or under someone in
         its own branch, give them actions it has itself, and no more freedom than it has."""
         creator_id = creator.id if creator else CHIEF_ID
@@ -165,6 +183,7 @@ def build_gabe(
         cap = FREEDOM_ORDER.index("standard" if creator is None else min(
             creator.freedom, "standard", key=FREEDOM_ORDER.index))
         levels = FREEDOM_ORDER[: cap + 1]
+        tiers = tiers_up_to(creator_tier)
 
         def where(manager: str) -> tuple[str, ...]:
             """The chain of names from this agent down to `manager` (for events and the audit)."""
@@ -175,7 +194,8 @@ def build_gabe(
             return {m.id for m in team.chain(member_id)} if member_id != CHIEF_ID else set()
 
         def add_team_member(name: str, job: str, instructions: str, skills: list[str], reports_to: str,
-                            why: str, first_task: str, freedom: str = DEFAULT_FREEDOM) -> str:
+                            why: str, first_task: str, freedom: str = DEFAULT_FREEDOM,
+                            model: str | None = None) -> str:
             manager = reports_to.strip() or creator_id
             # Refusals raise, so they show as failed (not done) in the activity log.
             if manager != creator_id and manager not in branch(creator_id):
@@ -186,6 +206,9 @@ def build_gabe(
                 raise ValueError(f"You can't give actions you don't have yourself: {', '.join(extra)}. Not added.")
             if freedom not in levels:
                 raise ValueError(f"Freedom must be one of: {', '.join(levels)}. Not added.")
+            model = model or None  # None: its manager picks a model for each job
+            if model is not None and model not in tiers:
+                raise ValueError(f"Model must be one of: {', '.join(tiers)}. Not added.")
             if not first_task.strip():
                 raise ValueError("Give it a first_task to start on now, so it doesn't sit idle. Not added.")
             # Work that belongs to an existing member's area goes under that member, not beside it.
@@ -197,7 +220,7 @@ def build_gabe(
                     f"This overlaps {m.name} ({m.id}: {m.job}). Give {m.name} the work with delegate, "
                     f"or add the new member under them (reports_to: {m.id}). Not added.")
             new = Member(id="", name=name.strip(), job=job.strip(), instructions=instructions.strip(),
-                         reports_to=manager, skills=sorted(set(skills)), freedom=freedom)
+                         reports_to=manager, skills=sorted(set(skills)), freedom=freedom, model=model)
             try:
                 if persist:
                     file = ensure_team_file(cfg)
@@ -214,19 +237,21 @@ def build_gabe(
                 raise ValueError(f"Not added: {e}") from e
             team.members[:] = current.members
             on_event("hired", {"agent": path[-1], "path": list(path), "member": new.id, "name": new.name,
-                               "reports_to": manager})
+                               "reports_to": manager, "model": model})
             boss = "you" if manager == creator_id else (team.get(manager).name if team.get(manager) else manager)
 
             # It starts work straight away, handed down from its manager, so it never sits idle.
             mpath = where(manager)
             on_event("delegate", {"agent": mpath[-1], "path": list(mpath), "to": new.id,
                                   "to_name": new.name, "task": first_task})
-            report = build_member(new, mpath).send(first_task)
-            on_event("report", {"agent": new.name, "path": [*mpath, new.name], "text": report})
-            return (f"Added {new.name} (id {new.id}), reporting to {boss}. It started on its first task "
+            try:
+                report = run_handed_off(build_member(new, mpath, cap=creator_tier), first_task, on_event, mpath)
+            except Exception as e:
+                raise RuntimeError(f"Added {new.name} (id {new.id}), but its first task failed: {e}") from e
+            return (f"Added {new.name} (id {new.id}, on {model or 'a model picked per job'}), reporting to {boss}. It started on its first task "
                     f"and reported back:\n{report}")
 
-        roster = "\n".join(f"- {m.id}: {m.name} (reports to {m.reports_to}). {m.job}"
+        roster = "\n".join(f"- {m.id}: {m.name} (reports to {m.reports_to}, {m.model or 'model picked per job'}). {m.job}"
                            for m in team.members if m.active and (creator is None or m.id in branch(creator_id)))
         return Tool(
             name=HIRE,
@@ -252,6 +277,11 @@ def build_gabe(
                     "first_task": {"type": "string", "description": "The work it should start on now, with every detail it needs."},
                     "freedom": {"type": "string", "enum": levels,
                                 "description": "look_only = can't change anything; ask_first = asks before changes; standard = asks before contacting anyone outside."},
+                    "model": {"type": "string", "enum": tiers,
+                              "description": "Fix its model when every job it gets needs the same: haiku for most "
+                                             "roles (lookups, sorting, routine updates, simple drafts), sonnet when the "
+                                             "role needs judgement or careful writing, opus only for high-priority, "
+                                             "genuinely difficult work. Leave out to pick a model each time you delegate."},
                 },
                 required=["name", "job", "instructions", "skills", "reports_to", "why", "first_task"],
             ),
@@ -262,30 +292,35 @@ def build_gabe(
         )
 
     def with_delegation(registry: ToolRegistry, manager_id: str, path: tuple[str, ...],
-                        hires: bool = False) -> ToolRegistry:
+                        hires: bool = False, own_tier: str | None = None) -> ToolRegistry:
         """Add a `delegate` tool that reaches this agent's own active direct reports (looked up
         when called, so someone added mid-run can be given work straight away)."""
         reports = team.reports(manager_id)
         if not reports and not hires:
             return registry
 
-        def delegate(specialist: str, task: str) -> str:
+        allowed = tiers_up_to(own_tier)
+
+        def delegate(specialist: str, task: str, model: str | None = None) -> str:
             member = team.get(specialist)
             if member is None or member.reports_to != manager_id or not team.is_working(member.id):
                 ids = ", ".join(m.id for m in team.reports(manager_id)) or "nobody yet"
                 return f"'{specialist}' isn't one of your active direct reports ({ids})."
+            if model and model not in allowed:
+                raise ValueError(f"model must be one of: {', '.join(allowed)}.")
+            agent = build_member(member, path, tier=model, cap=own_tier)
             on_event("delegate", {"agent": path[-1], "path": list(path), "to": member.id,
-                                  "to_name": member.name, "task": task})
-            report = build_member(member, path).send(task)
-            on_event("report", {"agent": member.name, "path": [*path, member.name], "text": report})
-            return report
+                                  "to_name": member.name, "task": task, "model": agent.tier})
+            return run_handed_off(agent, task, on_event, path)
 
         registry.register(
             Tool(
                 name="delegate",
                 description=(
                     "Hand a self-contained task to a member of your team and get their report back. "
-                    "They cannot see this conversation: include every detail they need."
+                    "They cannot see this conversation: include every detail they need. If it fails you get "
+                    "the error back: work out why and fix it (clearer instructions, a stronger model, someone "
+                    "else, or doing that part yourself). Ask the user only when a person has to act."
                 ),
                 input_schema=schema(
                     {
@@ -293,7 +328,13 @@ def build_gabe(
                                        "description": "Id of the team member to hand the task to"
                                        + (f", e.g. {', '.join(m.id for m in reports)}." if reports else ".")},
                         "task": {"type": "string", "description": "Complete instructions and context."},
-                    }
+                        "model": {"type": "string", "enum": allowed,
+                                  "description": "For members whose model is picked per job (ignored when it's fixed): "
+                                                 "haiku for most tasks, sonnet when it needs judgement or careful "
+                                                 "writing, opus only for high-priority, genuinely difficult work. "
+                                                 f"Default {DEFAULT_TIER}."},
+                    },
+                    required=["specialist", "task"],
                 ),
                 handler=delegate,
                 # Handing off is safe in itself; every action the team member takes is policy-gated.
@@ -303,19 +344,24 @@ def build_gabe(
         )
         return registry
 
-    def build_member(member: Member, manager_path: tuple[str, ...]) -> Agent:
+    def build_member(member: Member, manager_path: tuple[str, ...], tier: str | None = None,
+                     cap: str | None = None) -> Agent:
+        """`tier`: the model its manager picked for this job, used when the member has none fixed.
+        Neither set: DEFAULT_TIER. A picked model never goes above the manager's own (`cap`)."""
         path = (*manager_path, member.name)
         manager = manager_path[-1]
         hires = can_hire(member)
+        picked = tier if tier in tiers_up_to(cap) else None
+        run_on = member.model or picked or DEFAULT_TIER
         registry = tools.subset(skills_of(member))
         registry.register(ask_tool(member.name, asker))
         if hires:
-            registry.register(hire_tool(member, path))
-        return Agent(
+            registry.register(hire_tool(member, path, run_on))
+        agent = Agent(
             name=member.name,
-            provider=provider,
+            provider=provider.for_tier(run_on),
             system=delegate_prompt(cfg, member, manager, team.reports(member.id), can_hire=hires),
-            registry=with_delegation(registry, member.id, path, hires),
+            registry=with_delegation(registry, member.id, path, hires, run_on),
             policy=policy.restricted(member.freedom_level.ceiling),
             approver=approver,
             audit=audit,
@@ -324,7 +370,9 @@ def build_gabe(
             usage=usage,
             user=user,
             task=job,
+            tier=run_on,
         )
+        return agent
 
     top = (cfg.assistant_name,)
     if member is not None:

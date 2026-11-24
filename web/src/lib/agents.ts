@@ -32,3 +32,6 @@ export function nowText(a: Agent): string {
   if (a.now.kind === "tool") return tool(a.now.tool).past(a.now.input);
   return a.now.text;
 }
+
+export const MODELS: Record<string, string> = { haiku: "Haiku", sonnet: "Sonnet", opus: "Opus" };
+export const modelLabel = (m?: string | null) => (m ? MODELS[m] ?? m : "Default");

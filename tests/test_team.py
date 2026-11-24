@@ -1,3 +1,4 @@
+import copy
 import json
 import time
 
@@ -351,3 +352,126 @@ def test_adding_a_bot_works_when_others_list_unconnected_actions(team_config):
     p = ScriptedProvider([hire(), done("first done"), done("ok")])
     build_gabe(team_config, provider=p, approver=lambda t, a: True).send("x")
     assert load_team(team_config.team_file).get("invoice_chaser") is not None
+
+
+# ---- models per bot -----------------------------------------------------------------
+
+class TieredProvider(ScriptedProvider):
+    """Scripted provider that records which model each conversation ran on."""
+
+    def __init__(self, script):
+        super().__init__(script)
+        self.model = "big"
+        self.tiers = {"haiku": "small", "sonnet": "mid", "opus": "big"}
+        self.ran_on = []
+
+    def with_model(self, model):
+        other = copy.copy(self)
+        other.model = model
+        return other
+
+    def start(self, system, tools):
+        self.ran_on.append(self.model)
+        return super().start(system, tools)
+
+
+def test_each_bot_runs_on_its_own_model(team_config):
+    p = TieredProvider([delegate("ops"), done("ok"), done("ok")])
+    ops = team_config.team().get("ops")
+    team = Team([Member(**{**ops.to_dict(), "model": "sonnet"})])
+    build_gabe(team_config, provider=p, team=team).send("go")
+    assert p.ran_on == ["big", "mid"]
+
+
+def test_gabe_picks_the_new_bots_model(team_config):
+    p = TieredProvider([hire(model="sonnet"), done("chased"), done("ok")])
+    team = Team(list(team_config.team().members))
+    build_gabe(team_config, provider=p, team=team, approver=lambda t, a: True).send("go")
+    assert team.get("invoice_chaser").model == "sonnet"
+    assert p.ran_on == ["big", "mid"]  # Gabe, then the new bot on its first task
+
+
+def test_unknown_model_is_refused(team_config):
+    p = ScriptedProvider([hire(model="gpt"), done("ok")])
+    team = Team(list(team_config.team().members))
+    build_gabe(team_config, provider=p, team=team, approver=lambda t, a: True).send("go")
+    assert results(p)[0][0].is_error and team.get("invoice_chaser") is None
+
+
+def test_a_bot_cannot_hire_a_stronger_model_than_its_own(team_config):
+    ops = team_config.team().get("ops")
+    boss = Member(**{**ops.to_dict(), "model": "sonnet", "skills": ["list_tasks", "add_team_member"],
+                     "freedom": "standard"})
+    team = Team([boss])
+    p = ScriptedProvider([hire(model="opus", reports_to="ops"), done("ok")])
+    build_gabe(team_config, provider=p, team=team, member="ops").send("go")
+    out = results(p)[0][0]
+    assert out.is_error and "opus" not in out.content and "sonnet" in out.content
+
+
+def test_model_round_trips_through_the_team_file(tmp_path):
+    path = tmp_path / "team.yaml"
+    save_team(path, Team([Member(id="a", name="A", model="haiku"), Member(id="b", name="B")]))
+    assert "model: haiku" in path.read_text() and path.read_text().count("model:") == 2  # header + a
+    loaded = load_team(path)
+    assert loaded.get("a").model == "haiku" and loaded.get("b").model is None
+    with pytest.raises(TeamError):
+        Team([Member(id="c", name="C", model="gpt")]).validate()
+
+
+def test_anthropic_tiers_and_haiku_skips_server_fallback():
+    from gabe.providers import make_provider
+
+    p = make_provider({"kind": "anthropic", "client": object(), "tiers": {"sonnet": "claude-sonnet-5"}})
+    assert p.for_tier("haiku").model == "claude-haiku-5-5"
+    assert p.for_tier("sonnet").model == "claude-sonnet-5"
+    assert p.for_tier(None) is p
+    assert "fallbacks" not in p.for_tier("haiku").start("s", [])._request()
+    assert "fallbacks" in p.start("s", [])._request()
+
+
+def test_gabe_picks_a_model_per_job_for_default_bots(team_config):
+    ops = team_config.team().get("ops")
+    team = Team([Member(**{**ops.to_dict(), "model": None})])
+    p = TieredProvider([
+        tool_step(("delegate", {"specialist": "ops", "task": "hard one", "model": "opus"})), done("ok"),
+        tool_step(("delegate", {"specialist": "ops", "task": "easy one"})), done("ok"),
+        done("all done"),
+    ])
+    build_gabe(team_config, provider=p, team=team).send("go")
+    assert p.ran_on == ["big", "big", "small"]  # Gabe, opus as asked, then haiku by default
+
+
+def test_a_fixed_model_wins_over_the_managers_pick(team_config):
+    ops = team_config.team().get("ops")
+    team = Team([Member(**{**ops.to_dict(), "model": "haiku"})])
+    p = TieredProvider([tool_step(("delegate", {"specialist": "ops", "task": "x", "model": "opus"})),
+                        done("ok"), done("ok")])
+    build_gabe(team_config, provider=p, team=team).send("go")
+    assert p.ran_on == ["big", "small"]
+
+
+def test_new_bot_without_a_model_is_picked_per_job(team_config):
+    p = TieredProvider([hire(), done("chased"), done("ok")])
+    team = Team(list(team_config.team().members))
+    build_gabe(team_config, provider=p, team=team, approver=lambda t, a: True).send("go")
+    assert team.get("invoice_chaser").model is None
+    assert p.ran_on == ["big", "small"]
+
+
+# ---- failures are never silent -------------------------------------------------------
+
+def test_failed_hand_off_is_announced_and_goes_back_to_the_manager(team_config):
+    events = []
+    p = ScriptedProvider([delegate("ops"), RuntimeError("model fell over"), done("I'll retry later.")])
+    out = build_gabe(team_config, provider=p, on_event=lambda k, d: events.append((k, d))).send("go")
+    assert out == "I'll retry later."
+    failed = next(d for k, d in events if k == "failed")
+    assert failed["agent"] == "Operations lead" and failed["by"] == "Gabe" and "fell over" in failed["error"]
+    assert results(p)[0][0].is_error and "fell over" in results(p)[0][0].content
+
+
+def test_every_agent_is_told_how_to_report_a_failed_job(team_config):
+    p = ScriptedProvider([tool_step(("delegate", {"specialist": "ops", "task": "x"})), done("ok"), done("ok")])
+    build_gabe(team_config, provider=p).send("go")
+    assert all("JOB FAILED:" in system for system, _ in p.systems)

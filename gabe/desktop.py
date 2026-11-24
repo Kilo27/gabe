@@ -13,6 +13,7 @@ The daily brief is written on schedule while the app is open.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import secrets
@@ -167,6 +168,7 @@ class Notifier:
 
     def __init__(self, window_getter) -> None:
         self._window = window_getter
+        self.targets: dict[str, str] = {}  # notification id -> page to open when it's clicked
         self._center = None
         self._delegate = None
         if sys.platform == "darwin" and getattr(sys, "frozen", False):
@@ -189,7 +191,8 @@ class Notifier:
                 handler(0 if notifier._is_active() else (1 << 4) | (1 << 3) | (1 << 1))
 
             def userNotificationCenter_didReceiveNotificationResponse_withCompletionHandler_(self, center, resp, handler):
-                notifier.open_approvals()
+                ident = str(resp.notification().request().identifier())
+                notifier.open_path(notifier.targets.get(ident, "/approvals"))
                 handler()
 
         self._center = UNUserNotificationCenter.currentNotificationCenter()
@@ -215,7 +218,8 @@ class Notifier:
         except Exception:
             return False
 
-    def notify(self, ident: str, title: str, body: str) -> None:
+    def notify(self, ident: str, title: str, body: str, path: str = "/approvals") -> None:
+        self.targets[ident] = path
         if self._center is not None:
             from UserNotifications import (UNMutableNotificationContent, UNNotificationRequest,
                                            UNNotificationSound)
@@ -250,6 +254,9 @@ class Notifier:
         self._main(set_badge)
 
     def open_approvals(self) -> None:
+        self.open_path("/approvals")
+
+    def open_path(self, path: str) -> None:
         def front():
             try:
                 from AppKit import NSApplication
@@ -261,18 +268,27 @@ class Notifier:
         w = self._window()
         if w is not None:
             w.restore()
-            w.evaluate_js("history.pushState(null, '', '/approvals'); dispatchEvent(new PopStateEvent('popstate'))")
+            w.evaluate_js(f"history.pushState(null, '', {json.dumps(path)}); dispatchEvent(new PopStateEvent('popstate'))")
 
 
 def watch_requests(state, notifier: Notifier, stop: threading.Event) -> None:
-    """Announce every new question or approval once, and keep the Dock badge current."""
+    """Announce every new question or approval, and every job that finished or failed, once;
+    keep the Dock badge current."""
     seen = {a["id"] for a in state.approvals.all() if a["status"] == "pending"}
+    seen |= {n["id"] for n in state.notices.load().get("notices", [])}
     last = None
     while not stop.wait(1.5):
         try:
             pending = [a for a in state.approvals.all() if a["status"] == "pending"]
+            notices = state.notices.load().get("notices", [])
         except Exception:
+            log.exception("couldn't read what needs announcing")
             continue
+        for n in notices:
+            if n["id"] not in seen:
+                seen.add(n["id"])
+                path = f"/ask/{n['session_id']}" if n.get("session_id") else "/"
+                notifier.notify(n["id"], n["title"], n.get("body", ""), path)
         for rec in pending:
             if rec["id"] not in seen:
                 seen.add(rec["id"])
@@ -309,14 +325,18 @@ def _wait_for(port: int, timeout: float = 20) -> None:
     raise RuntimeError("The Gabe service didn't start.")
 
 
-def _scheduler(config_path: Path) -> None:
+def _scheduler(config_path: Path, state) -> None:
     from gabe.briefing import run_scheduler
     from gabe.config import load_config
 
+    def on_error(e: Exception) -> None:
+        log.error("brief failed: %s: %s", type(e).__name__, e)
+        state.job_failed("Daily brief", e, "Write and send today's scheduled daily brief.")
+
     run_scheduler(
         load_config(config_path),
-        on_brief=lambda text, path: log.info("brief written to %s", path),
-        on_error=lambda e: log.error("brief failed: %s: %s", type(e).__name__, e),
+        on_brief=lambda text, path: state.notify("done", "Daily brief ready", path.stem),
+        on_error=on_error,
     )
 
 
@@ -353,7 +373,7 @@ def main() -> int:
         log.info("API key %s", "loaded" if os.environ.get("ANTHROPIC_API_KEY") else "not set")
 
     threading.Thread(target=secrets_in_background, daemon=True, name="keychain").start()
-    threading.Thread(target=_scheduler, args=(config_path,), daemon=True, name="brief-scheduler").start()
+    threading.Thread(target=_scheduler, args=(config_path, app.state.gabe), daemon=True, name="brief-scheduler").start()
     _wait_for(port)
 
     api = NativeApi(config_path)

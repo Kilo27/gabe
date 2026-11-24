@@ -1,3 +1,6 @@
+import pytest
+
+from gabe.agent import Unfinished
 from gabe.app import build_gabe
 from gabe.config import load_config
 from gabe.providers.base import StepResult, ToolCall
@@ -161,5 +164,41 @@ def test_truncated_turn_does_not_run_tools(config_file):
         StepResult(text="partial", tool_calls=[ToolCall("1", "create_task", {"title": "x"})], stop="max_tokens"),
     ])
     gabe = build_gabe(load_config(config_file), provider=p)
-    assert "truncated" in gabe.send("go")
+    with pytest.raises(Unfinished, match="cut off") as e:
+        gabe.send("go")
+    assert e.value.partial == "partial"
     assert results(p) == []
+
+
+def test_running_out_of_steps_or_declining_is_a_failure_not_an_answer(config_file):
+    p = ScriptedProvider([tool_step(("list_tasks", {}))] * 3)
+    gabe = build_gabe(load_config(config_file), provider=p)
+    gabe.max_steps = 3
+    with pytest.raises(Unfinished, match="stopped after 3 steps"):
+        gabe.send("go")
+    p = ScriptedProvider([StepResult(text="", tool_calls=[], stop="refusal", detail="cyber: no")])
+    with pytest.raises(Unfinished, match="declined"):
+        build_gabe(load_config(config_file), provider=p).send("go")
+
+
+def test_a_reply_that_says_the_job_failed_is_a_failure(config_file):
+    p = ScriptedProvider([done("I couldn't send it: the mail connection is broken.\n\nJOB FAILED: email sending is broken")])
+    with pytest.raises(Unfinished, match="couldn't do it: email sending is broken") as e:
+        build_gabe(load_config(config_file), provider=p).send("send the email")
+    assert e.value.partial == "I couldn't send it: the mail connection is broken."
+    p = ScriptedProvider([done("Sent. Mentioned that JOB FAILED: lines are for failures.\nAll good.")])
+    assert build_gabe(load_config(config_file), provider=p).send("go").endswith("All good.")
+
+
+def test_tool_errors_say_retrying_wont_help(config_file):
+    from gabe.tools.registry import Risk, Tool, schema
+
+    def boom():
+        raise RuntimeError("down")
+
+    p = ScriptedProvider([tool_step(("boom", {})), done("ok")])
+    gabe = build_gabe(load_config(config_file), provider=p)
+    gabe.registry.register(Tool("boom", "Fails.", schema({}), boom, Risk.READ, "test"))
+    gabe.send("go")
+    assert "Retrying the same call will fail" in results(p)[0][0].content
+

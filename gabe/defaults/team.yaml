@@ -2,6 +2,7 @@
 # Edited from the Agents screen in the Gabe app; editing by hand is fine too.
 # reports_to: "chief" means the member reports straight to Gabe.
 # skills: omit to allow every tool Gabe has. freedom: look_only | ask_first | standard | trusted
+# model: haiku | sonnet | opus. Omit to let its manager pick one for each job.
 
 members:
 - id: operations
@@ -14,6 +15,7 @@ members:
   skills: [get_current_time, list_tasks, recall]
   freedom: standard
   active: true
+  model: sonnet
 - id: scheduler
   name: Scheduler
   job: Plans deadlines, reviews workloads and chases overdue tasks.
@@ -24,6 +26,7 @@ members:
   skills: [get_current_time, list_tasks, update_task, create_task]
   freedom: standard
   active: true
+  model: haiku
 - id: comms
   name: Communications
   job: Drafts and sends internal and external communications.
@@ -34,6 +37,7 @@ members:
   skills: [recall, search_email, read_email, draft_email, send_email, mark_email_read]
   freedom: standard
   active: true
+  model: sonnet
 - id: inbox
   name: Inbox triage
   job: Reads new email and sorts it into needs a reply, FYI, or ignore, with a suggested owner.
@@ -44,6 +48,7 @@ members:
   skills: [search_email, read_email, recall]
   freedom: look_only
   active: true
+  model: haiku
 - id: notes
   name: Notes keeper
   job: Keeps the record of decisions, commitments, preferences and people.
@@ -55,3 +60,4 @@ members:
   skills: [get_current_time, remember, recall, forget]
   freedom: standard
   active: true
+  model: haiku

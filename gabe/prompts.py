@@ -52,6 +52,15 @@ How you work:
   preferences to whoever keeps notes, and commitments to whoever owns tasks.
 - Only answer directly when the user is just talking to you, or nobody on the team fits."""
 
+OUTCOME_NOTE = """\
+## When you can't do it
+If you couldn't do what was asked (a tool kept failing, something was blocked or declined,
+or a person said no), say so plainly and make the very last line of your reply:
+JOB FAILED: <one line on what stopped you>
+Only then; a job you finished never ends with that line. Don't retry a tool that failed
+with the same error unless you've changed something that would make it work."""
+
+
 DELEGATE = """\
 You are {role}, part of the team of AI assistants run by {name}, the AI chief of staff
 for {company}. You report to {manager}. Your job: {job}
@@ -96,7 +105,10 @@ Prefer the team you have: hand work to the closest member, even if the fit isn't
 Only when a lasting role is missing (work of that kind keeps coming), add a member with
 `add_team_member`, placed under whoever owns that area. Never add members for individual
 tasks or a project's to-do list. A new member starts on its first task straight away, and
-a person approves every new member before it exists."""
+a person approves every new member before it exists.
+Fix a new member's model only when all its work needs the same one; otherwise leave it out
+and pick one each time you delegate. Haiku for most work, sonnet where judgement or careful
+writing matters, opus only for high-priority, genuinely difficult work."""
 
 
 def chief_of_staff_prompt(cfg: Config, reports: "list[Member] | None" = None, dispatcher: bool = False,
@@ -114,6 +126,7 @@ def chief_of_staff_prompt(cfg: Config, reports: "list[Member] | None" = None, di
         out.append(TEAM_NOTE.format(roster=_roster(reports)))
     if can_hire:
         out.append(HIRE_NOTE)
+    out.append(OUTCOME_NOTE)
     block = _company_block(cfg)
     if block:
         out.append(block)
@@ -137,6 +150,7 @@ def delegate_prompt(cfg: Config, member: "Member", manager: str, reports: "list[
         out.append(TEAM_NOTE.format(roster=_roster(list(reports))))
     if can_hire:
         out.append(HIRE_NOTE)
+    out.append(OUTCOME_NOTE)
     block = _company_block(cfg)
     if block:
         out.append(block)
