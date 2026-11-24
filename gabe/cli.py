@@ -29,10 +29,15 @@ def terminal_approver(tool: Tool, args: dict[str, Any]) -> bool:
 
 
 def print_event(kind: str, data: dict[str, Any]) -> None:
-    if kind == "tool":
-        print(f"{DIM}  · {data['agent']} → {data['tool']} [{data['outcome']}]{RESET}", file=sys.stderr)
+    indent = "  " * len(data.get("path") or [None])
+    if kind == "tool" and data["tool"] != "delegate":
+        print(f"{DIM}{indent}· {data['agent']} → {data['tool']} [{data['outcome']}]{RESET}", file=sys.stderr)
     elif kind == "thought":
-        print(f"{DIM}  · {data['agent']}: {data['text'].strip()[:200]}{RESET}", file=sys.stderr)
+        print(f"{DIM}{indent}· {data['agent']}: {data['text'].strip()[:200]}{RESET}", file=sys.stderr)
+    elif kind == "delegate":
+        print(f"{DIM}{indent}↳ {data['agent']} asked {data['to_name']}: {data['task'].strip()[:200]}{RESET}", file=sys.stderr)
+    elif kind == "approval_needed":
+        print(f"\n{BOLD}{' › '.join(data['path'])}{RESET} wants to use {data['tool']}.", file=sys.stderr)
 
 
 def load_dotenv(path: str = ".env") -> None:
@@ -152,6 +157,13 @@ def _auth(cfg, args) -> int:
     return 0
 
 
+def _ui(cfg, args) -> int:
+    from gabe.ui.server import serve
+
+    serve(cfg, port=args.port, open_browser=not args.no_browser)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     load_dotenv()
     ap = argparse.ArgumentParser(prog="gabe", description="Gabe, your AI chief of staff.")
@@ -165,12 +177,15 @@ def main(argv: list[str] | None = None) -> int:
     brief = sub.add_parser("brief", help="Produce today's daily briefing now (and email it if configured)")
     brief.add_argument("--no-email", action="store_true", help="Don't email it, even if briefing.email_to is set")
     sub.add_parser("schedule", help="Run forever, producing the daily briefing at the configured time")
+    ui = sub.add_parser("ui", help="Open the team page in your browser: see, change and watch Gabe's team")
+    ui.add_argument("--port", type=int, default=8765)
+    ui.add_argument("--no-browser", action="store_true", help="Don't open a browser window")
     auth = sub.add_parser("auth", help="Authorise an integration")
     auth.add_argument("service", choices=["gmail"])
 
     args = ap.parse_args(argv)
     cfg = load_config(args.config)
-    handler = {"brief": _brief, "schedule": _schedule, "auth": _auth}.get(args.command, _chat)
+    handler = {"brief": _brief, "schedule": _schedule, "auth": _auth, "ui": _ui}.get(args.command, _chat)
     return handler(cfg, args)
 
 

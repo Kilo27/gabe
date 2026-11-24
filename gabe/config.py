@@ -37,6 +37,20 @@ class Config:
     policy: dict[str, Any] = field(default_factory=dict)
     delegates: list[DelegateSpec] = field(default_factory=list)
     briefing: dict[str, Any] = field(default_factory=dict)
+    team_file: Path | None = None  # the hierarchy, edited from `gabe ui`; see gabe/team.py
+
+    def team(self):
+        """The current team. Read fresh each time so edits from the Team page take effect."""
+        from gabe.team import Member, Team, load_team
+
+        if self.team_file is not None:
+            return load_team(self.team_file)
+        # Older configs: `delegates:` all report straight to Gabe.
+        return Team([
+            Member(id=d.name, name=d.name.replace("_", " ").capitalize(), job=d.description,
+                   instructions=d.instructions, skills=d.tools)
+            for d in self.delegates
+        ])
 
     def playbooks(self) -> list[tuple[str, str]]:
         if not self.playbooks_dir or not self.playbooks_dir.is_dir():
@@ -72,6 +86,9 @@ def load_config(path: str | os.PathLike[str] | None = None) -> Config:
         for name, spec in (raw.get("delegates") or {}).items()
     ]
 
+    if raw.get("team_file") and raw.get("delegates"):
+        raise ValueError("Use either `team_file` or `delegates` in config, not both. Move delegates into the team file.")
+
     return Config(
         root=root,
         assistant_name=(raw.get("assistant") or {}).get("name", "Gabe"),
@@ -83,4 +100,5 @@ def load_config(path: str | os.PathLike[str] | None = None) -> Config:
         policy=raw.get("policy") or {},
         delegates=delegates,
         briefing=raw.get("briefing") or {},
+        team_file=rel(raw.get("team_file")),
     )
