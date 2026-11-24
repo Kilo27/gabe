@@ -42,7 +42,11 @@ gabe app                        # run it from source instead
   first launch copies a starter config there. `GABE_HOME` overrides the location.
 - The Anthropic API key is entered in Settings → AI model and kept in the macOS Keychain.
 - Gmail: Settings → Email → Choose file… (the Google OAuth client JSON), then Connect Gmail.
-- The daily brief is written on schedule while the app is open.
+- The daily brief is written on schedule while the app is open. If it was missed (the app
+  was closed or crashed at brief time), it's written when the app next starts.
+- Work cut off by a restart or crash is picked up again on start. Gabe gets the original
+  request and the steps already done, so it doesn't repeat them. A job that keeps taking the
+  app down is stopped after two retries. Approvals and questions left unanswered are asked again.
 - Attach a task when you give a bot a job (the paperclip on an agent card or in a
   conversation), or use "Give to a bot" on a task. The bot gets the task's details and is
   asked to keep it updated, and the task shows which bot has it.
@@ -51,8 +55,10 @@ gabe app                        # run it from source instead
   The run waits for your answer. The first time, macOS asks to allow Gabe's notifications.
 - After installing a new build, macOS may ask once to let Gabe read its key from the
   Keychain ("Always Allow"). The window opens regardless; Gabe can't reach the AI until then.
-- The build is ad-hoc signed, so other Macs show a Gatekeeper warning. For distribution set
-  `SIGN_ID` to a Developer ID certificate and notarize the .dmg.
+- Run `packaging/macos/make_signing_cert.sh` once: it creates a local "Gabe Local Signing"
+  certificate that the build then uses, so every build has the same signature and macOS keeps
+  Gabe's notification and Keychain permissions. Other Macs still need a Developer ID
+  (`SIGN_ID`) and a notarized .dmg.
 
 Home is **Agents**: a live map of who hands work to whom, each agent's actions today on a
 timeline, and controls per agent (give it a job, pause/resume, set what it may do, approve

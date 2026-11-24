@@ -268,7 +268,15 @@ def watch_requests(state, notifier: Notifier, stop: threading.Event) -> None:
     """Announce every new question or approval once, and keep the Dock badge current."""
     seen = {a["id"] for a in state.approvals.all() if a["status"] == "pending"}
     last = None
+    announced = False
     while not stop.wait(1.5):
+        if not announced and state.resumed:
+            announced = True
+            n = len(state.resumed)
+            first = state.resumed[0]["title"] or "a job"
+            notifier.notify("resumed", "Gabe picked up where it left off",
+                            f"Restarted {first}" + (f" and {n - 1} more" if n > 1 else "") + " after the app closed.")
+            log.info("resumed %s interrupted job(s)", n)
         try:
             pending = [a for a in state.approvals.all() if a["status"] == "pending"]
         except Exception:
@@ -342,7 +350,8 @@ def main() -> int:
 
     token = secrets.token_urlsafe(32)
     port = _free_port()
-    app = create_app(config_path, token=token, desktop=True)
+    key_ready = threading.Event()
+    app = create_app(config_path, token=token, desktop=True, resume_when=key_ready)
     threading.Thread(target=_serve, args=(app, port), daemon=True, name="api").start()
 
     def secrets_in_background():
@@ -350,10 +359,15 @@ def main() -> int:
         # that must never hold up the window, so the key loads here and agents pick it up after.
         load_secrets()
         app.state.gabe.sessions.reset_idle()
+        key_ready.set()  # interrupted work is picked up now that the model can be reached
         log.info("API key %s", "loaded" if os.environ.get("ANTHROPIC_API_KEY") else "not set")
 
     threading.Thread(target=secrets_in_background, daemon=True, name="keychain").start()
-    threading.Thread(target=_scheduler, args=(config_path,), daemon=True, name="brief-scheduler").start()
+    def scheduler_after_key():
+        key_ready.wait()  # a missed brief is caught up first, which needs the model
+        _scheduler(config_path)
+
+    threading.Thread(target=scheduler_after_key, daemon=True, name="brief-scheduler").start()
     _wait_for(port)
 
     api = NativeApi(config_path)
