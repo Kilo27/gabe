@@ -27,14 +27,36 @@ def test_system_prompt_includes_company_playbooks_and_roster(config_file):
 
 
 def test_gabe_only_keeps_lookup_tools_and_delegates_the_rest(config_file):
+    cfg = load_config(config_file)
+    cfg.delegates[0].tools = None  # the team can do everything
     p = ScriptedProvider([done("hi")])
-    gabe = build_gabe(load_config(config_file), provider=p)
-    gabe.send("hello")
+    build_gabe(cfg, provider=p).send("hello")
     assert p.systems[0][1] == ["delegate", "get_current_time", "recall"]
+
+
+def test_gabe_keeps_actions_nobody_on_the_team_can_do(config_file):
+    p = ScriptedProvider([done("hi")])
+    build_gabe(load_config(config_file), provider=p).send("hello")
+    tools = p.systems[0][1]
+    # The test team's scheduler only has list_tasks and create_task.
+    assert "create_task" not in tools and "list_tasks" not in tools
+    assert "send_email" in tools and "remember" in tools and "delegate" in tools
+
+
+def test_paused_member_hands_its_actions_back_to_gabe(config_file):
+    cfg = load_config(config_file)
+    cfg.delegates[0].tools = None
+    team = cfg.team()
+    team.members[0].active = False
+    p = ScriptedProvider([done("hi")])
+    build_gabe(cfg, provider=p, team=team).send("hello")
+    system, tools = p.systems[0]
+    assert "send_email" in tools and "delegate" not in tools and "dispatcher" not in system
 
 
 def test_own_tools_is_configurable(config_file):
     cfg = load_config(config_file)
+    cfg.delegates[0].tools = None
     cfg.own_tools = ["list_tasks", "not_loaded"]
     p = ScriptedProvider([done("hi")])
     build_gabe(cfg, provider=p).send("hello")

@@ -1,7 +1,9 @@
 # Gabe UI: plan
 
 Status: **plan only**, not built yet. Today Gabe runs from the terminal
-(`gabe`, `gabe brief`, `gabe schedule`).
+(`gabe`, `gabe brief`, `gabe schedule`). A first local page, `gabe ui`, covers the
+team (Settings → Specialists), live runs with in-page approvals, and a plain-English
+activity view; see the README. It is single-user and keeps approvals in memory.
 
 ## Who uses it
 

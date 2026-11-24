@@ -11,7 +11,7 @@ from typing import Any
 import yaml
 
 
-# What Gabe keeps for itself when it has specialists: enough to brief them well.
+# What Gabe keeps for itself when it has a team: enough to brief them well.
 DEFAULT_OWN_TOOLS = ("get_current_time", "recall")
 
 
@@ -33,7 +33,7 @@ class DelegateSpec:
 class Config:
     root: Path
     assistant_name: str = "Gabe"
-    # Tools Gabe uses directly when it has delegates; everything else goes through them.
+    # Tools Gabe uses directly when it has a team; the rest is done by team members.
     own_tools: list[str] = field(default_factory=lambda: list(DEFAULT_OWN_TOOLS))
     company: dict[str, Any] = field(default_factory=dict)
     provider: dict[str, Any] = field(default_factory=lambda: {"kind": "anthropic"})
@@ -43,6 +43,22 @@ class Config:
     policy: dict[str, Any] = field(default_factory=dict)
     delegates: list[DelegateSpec] = field(default_factory=list)
     briefing: dict[str, Any] = field(default_factory=dict)
+    team_file: Path | None = None  # the hierarchy, edited from `gabe ui`; see gabe/team.py
+
+    def team(self):
+        """The current team. Read fresh each time so edits from the Team page take effect."""
+        from gabe.team import Member, Team, load_team
+
+        if self.team_file is not None:
+            return load_team(self.team_file)
+        # Older configs: `delegates:` all report straight to Gabe.
+        return Team([
+            Member(id=d.name, name=d.name.replace("_", " ").capitalize(), job=d.description,
+                   instructions=d.instructions, skills=d.tools)
+            for d in self.delegates
+        ])
+
+    pricing: dict[str, dict[str, float]] = field(default_factory=dict)  # model -> $/M tokens
 
     def playbooks(self) -> list[tuple[str, str]]:
         if not self.playbooks_dir or not self.playbooks_dir.is_dir():
@@ -78,11 +94,13 @@ def load_config(path: str | os.PathLike[str] | None = None) -> Config:
         for name, spec in (raw.get("delegates") or {}).items()
     ]
 
-    assistant = raw.get("assistant") or {}
+    if raw.get("team_file") and raw.get("delegates"):
+        raise ValueError("Use either `team_file` or `delegates` in config, not both. Move delegates into the team file.")
+
     return Config(
         root=root,
-        assistant_name=assistant.get("name", "Gabe"),
-        own_tools=list(assistant.get("own_tools", DEFAULT_OWN_TOOLS)),
+        assistant_name=(raw.get("assistant") or {}).get("name", "Gabe"),
+        own_tools=list((raw.get("assistant") or {}).get("own_tools", DEFAULT_OWN_TOOLS)),
         company=raw.get("company") or {},
         provider=raw.get("provider") or {"kind": "anthropic"},
         data_dir=rel(raw.get("data_dir", "../data")),
@@ -91,4 +109,6 @@ def load_config(path: str | os.PathLike[str] | None = None) -> Config:
         policy=raw.get("policy") or {},
         delegates=delegates,
         briefing=raw.get("briefing") or {},
+        team_file=rel(raw.get("team_file")),
+        pricing=raw.get("pricing") or {},
     )

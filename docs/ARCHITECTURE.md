@@ -14,9 +14,10 @@
                     ▼                       ▼                         ▼
           Provider (gabe/providers)   ToolRegistry (gabe/tools)    AuditLog
           ├ anthropic  (Claude API)    ├ integrations/* tools       data/audit.jsonl
-          └ openai_compatible (GLM)    └ delegate → sub-Agent with
-                                         restricted tool subset,
-                                         same policy & approver
+          └ openai_compatible (GLM)    └ delegate → team member's   (with the chain
+                                         Agent (gabe/team.py):        of hand-offs)
+                                         own skills, own direct
+                                         reports, policy ≤ company
 ```
 
 ## Key decisions
@@ -48,12 +49,28 @@ to `allow`, `ask` or `deny`. `ask` calls an `Approver`: the terminal prompt in t
 `deny_all` for unattended runs, and later a Slack or web approval flow. Denials go back to
 the model as tool errors with an instruction not to retry. Every attempt is audited.
 
-**Delegation.** Specialists defined in config become a `delegate` tool. Each specialist
-is a fresh `Agent` with its own prompt and a tool subset. It shares the provider, policy,
-approver and audit log, and it returns a report to Gabe. When delegates exist, Gabe is a
-dispatcher: it keeps only `assistant.own_tools` (default `get_current_time`, `recall`)
-plus `delegate`, and its prompt tells it to hand almost every request to a specialist.
-Without delegates, Gabe uses every tool itself. The briefing run is always hands-on.
+**Delegation is a hierarchy.** The team (`team_file`, see `gabe/team.py`) is a tree under
+Gabe. Every agent with active direct reports gets its own `delegate` tool whose enum
+lists only those reports, so work flows strictly down the org chart. Each hand-off
+builds a fresh `Agent` with the member's prompt (job, manager, its own roster), its
+skill subset, and `policy.restricted(freedom ceiling)`. The ceiling can only tighten a
+decision (`stricter()` of company rule and freedom level). Agents carry a `path`
+(Gabe › Operations lead › Scheduler) that goes into every event and audit record.
+Validation refuses loops, unknown managers and chains deeper than `MAX_DEPTH` (4).
+Paused members drop out with their whole branch.
+
+**Gabe dispatches.** When Gabe has direct reports it gets a dispatcher prompt and only
+`assistant.own_tools` plus `delegate`, so the team does the work. Tools no working member
+covers (`team_coverage`) stay with Gabe, so pausing a branch never strands an action. The
+briefing agent is built separately with the hands-on prompt and read-only tools.
+
+**Team page.** `gabe ui` (`gabe/ui/server.py`) is a standard-library HTTP server bound
+to 127.0.0.1 serving one static page. It edits the team file, runs requests in a
+background thread, and turns the blocking `Approver` into a wait on a
+`threading.Event` that the page's Approve/Decline buttons set (30-minute timeout =
+declined). It rejects other `Host` headers and cross-origin or non-JSON writes, so other
+websites can't drive it. Approvals live in memory: restarting the server drops a
+pending one, which is what the UI plan's persistent approvals will fix.
 
 ## Roadmap
 

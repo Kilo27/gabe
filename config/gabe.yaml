@@ -3,8 +3,8 @@
 
 assistant:
   name: Gabe
-  # With delegates configured, Gabe only uses these tools itself and hands everything
-  # else to a specialist below. Make sure every other tool belongs to some delegate.
+  # With a team (team.yaml), Gabe only uses these tools itself and hands everything else
+  # to the team. Anything no active team member can do stays with Gabe.
   own_tools: [get_current_time, recall]
 
 company:
@@ -29,6 +29,16 @@ provider:
 #   max_tokens: 8192
 
 data_dir: ../data
+
+# List prices in $ per million tokens, used only by `gabe usage` to estimate cost.
+# Keys are model names as the provider reports them. cache_read / cache_write fall
+# back to the input price when left out. Check providers' pages before budgeting.
+pricing:                       # as of 2026-11-24
+  claude-opus-5-5:   {input: 4.00, cache_read: 0.20, cache_write: 5.00, output: 20.00}
+  claude-sonnet-5-5: {input: 2.00, cache_read: 0.10, cache_write: 2.50, output: 10.00}
+  claude-haiku-5-5:  {input: 0.10, cache_read: 0.01, cache_write: 0.125, output: 0.50}   # prompts up to 100K tokens
+  glm-5.3:           {input: 1.40, cache_read: 0.26, output: 4.40}                        # Z.ai list price
+  glm-5.3-flash:     {input: 0.15, cache_read: 0.03, output: 0.50}                        # Z.ai list price
 playbooks_dir: playbooks
 
 # Built-ins by short name; company-specific ones by dotted module path,
@@ -59,25 +69,6 @@ briefing:
   email_to: [me]           # "me" = the connected Gmail mailbox; add other addresses as needed
   # output_dir: ../data/briefings
 
-# Specialists Gabe hands work to. `tools` limits what each one can use; omit it to
-# give a specialist every tool.
-delegates:
-  scheduler:
-    description: Plans deadlines, reviews workloads and chases overdue tasks.
-    instructions: |
-      You own the task list. Check the current time first, then review tasks for
-      what is overdue, due soon, unowned or blocked, and propose concrete fixes.
-    tools: [get_current_time, list_tasks, update_task, create_task]
-  comms:
-    description: Drafts and sends internal and external communications.
-    instructions: |
-      Write in the company's voice: plain, warm, brief. Check memory for context on
-      recipients before writing.
-    tools: [recall, search_email, read_email, draft_email, send_email, mark_email_read]
-  notes:
-    description: Keeps the record of decisions, commitments, preferences and people.
-    instructions: |
-      Save what you're given as clear, self-contained notes with good topics and tags.
-      Check for an existing note first; update it by forgetting the stale one rather
-      than saving a duplicate. When asked what's known about something, search broadly.
-    tools: [get_current_time, remember, recall, forget]
+# Gabe's team: the assistants Gabe can hand work to, and who they hand work to.
+# Edit it from the Team page (`gabe ui`) or by hand. See config/team.yaml.
+team_file: team.yaml

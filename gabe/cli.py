@@ -29,10 +29,15 @@ def terminal_approver(tool: Tool, args: dict[str, Any]) -> bool:
 
 
 def print_event(kind: str, data: dict[str, Any]) -> None:
-    if kind == "tool":
-        print(f"{DIM}  · {data['agent']} → {data['tool']} [{data['outcome']}]{RESET}", file=sys.stderr)
+    indent = "  " * len(data.get("path") or [None])
+    if kind == "tool" and data["tool"] != "delegate":
+        print(f"{DIM}{indent}· {data['agent']} → {data['tool']} [{data['outcome']}]{RESET}", file=sys.stderr)
     elif kind == "thought":
-        print(f"{DIM}  · {data['agent']}: {data['text'].strip()[:200]}{RESET}", file=sys.stderr)
+        print(f"{DIM}{indent}· {data['agent']}: {data['text'].strip()[:200]}{RESET}", file=sys.stderr)
+    elif kind == "delegate":
+        print(f"{DIM}{indent}↳ {data['agent']} asked {data['to_name']}: {data['task'].strip()[:200]}{RESET}", file=sys.stderr)
+    elif kind == "approval_needed":
+        print(f"\n{BOLD}{' › '.join(data['path'])}{RESET} wants to use {data['tool']}.", file=sys.stderr)
 
 
 def load_dotenv(path: str = ".env") -> None:
@@ -56,6 +61,7 @@ def _chat(cfg, args) -> int:
         cfg,
         approver=deny_all if args.unattended else terminal_approver,
         on_event=print_event,
+        user=args.user,
     )
 
     def ask(text: str) -> None:
@@ -125,6 +131,23 @@ def _schedule(cfg, args) -> int:
     return 0
 
 
+def _usage(cfg, args) -> int:
+    from gabe.usage import format_table, read_events, summarize
+
+    path = cfg.data_dir / "usage.jsonl"
+    events = read_events(path, since=args.since)
+    if args.user:
+        events = [e for e in events if e.get("user") == args.user]
+    if not events:
+        print(f"No usage recorded{' since ' + args.since if args.since else ''} in {path}.")
+        return 0
+    by = [f.strip() for f in args.by.split(",") if f.strip()]
+    first, last = events[0]["ts"][:10], events[-1]["ts"][:10]
+    print(f"Usage {first} to {last} ({len(events)} model calls)\n")
+    print(format_table(summarize(events, by, cfg.pricing), by))
+    return 0
+
+
 def _auth(cfg, args) -> int:
     from gabe.integrations import IntegrationContext
     from gabe.integrations.email import gmail_paths
@@ -152,10 +175,18 @@ def _auth(cfg, args) -> int:
     return 0
 
 
+def _ui(cfg, args) -> int:
+    from gabe.ui.server import serve
+
+    serve(cfg, port=args.port, open_browser=not args.no_browser)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     load_dotenv()
     ap = argparse.ArgumentParser(prog="gabe", description="Gabe, your AI chief of staff.")
     ap.add_argument("-c", "--config", help="Path to company config (default: $GABE_CONFIG or config/gabe.yaml)")
+    ap.add_argument("--user", help="Who this run is for, in usage logs (default: $GABE_USER or your login)")
     sub = ap.add_subparsers(dest="command")
 
     chat = sub.add_parser("chat", help="Talk to Gabe (default)")
@@ -165,12 +196,18 @@ def main(argv: list[str] | None = None) -> int:
     brief = sub.add_parser("brief", help="Produce today's daily briefing now (and email it if configured)")
     brief.add_argument("--no-email", action="store_true", help="Don't email it, even if briefing.email_to is set")
     sub.add_parser("schedule", help="Run forever, producing the daily briefing at the configured time")
+    ui = sub.add_parser("ui", help="Open the team page in your browser: see, change and watch Gabe's team")
+    ui.add_argument("--port", type=int, default=8765)
+    ui.add_argument("--no-browser", action="store_true", help="Don't open a browser window")
+    usage = sub.add_parser("usage", help="Token usage and estimated cost from data/usage.jsonl")
+    usage.add_argument("--since", help="Only calls on or after this date (YYYY-MM-DD, UTC)")
+    usage.add_argument("--by", default="user,task,model", help="Group by any of user,task,model,agent (default: user,task,model)")
     auth = sub.add_parser("auth", help="Authorise an integration")
     auth.add_argument("service", choices=["gmail"])
 
     args = ap.parse_args(argv)
     cfg = load_config(args.config)
-    handler = {"brief": _brief, "schedule": _schedule, "auth": _auth}.get(args.command, _chat)
+    handler = {"brief": _brief, "schedule": _schedule, "usage": _usage, "auth": _auth, "ui": _ui}.get(args.command, _chat)
     return handler(cfg, args)
 
 

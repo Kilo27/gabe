@@ -103,5 +103,21 @@ class OpenAICompatibleConversation(Conversation):
             text=msg.get("content") or "",
             tool_calls=calls,
             stop=stop,
-            usage=data.get("usage") or {},
+            usage=_normalise_usage(data, self.p.model),
         )
+
+
+def _normalise_usage(data: dict[str, Any], model: str) -> dict[str, Any]:
+    """OpenAI-style usage → Gabe's shape (gabe/usage.py). prompt_tokens includes cached ones."""
+    raw = data.get("usage") or {}
+    if not raw:
+        return {}
+    prompt = raw.get("prompt_tokens") or 0
+    cached = (raw.get("prompt_tokens_details") or {}).get("cached_tokens") or 0
+    return {
+        "model": data.get("model") or model,
+        "input_tokens": max(prompt - cached, 0),
+        "cache_read_tokens": cached,
+        "cache_write_tokens": 0,
+        "output_tokens": raw.get("completion_tokens") or 0,
+    }
