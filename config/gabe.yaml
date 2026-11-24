@@ -36,8 +36,8 @@ integrations:
   - tasks
   - name: email
     settings:
-      backend: outbox      # writes to data/email/outbox instead of sending
-      from_address: gabe@example.com
+      backend: gmail       # gmail | outbox (outbox writes to data/email/outbox, sends nothing)
+      credentials_file: gmail_client_secret.json   # OAuth client from Google Cloud; see docs/GMAIL_SETUP.md
 
 # What may run unattended. Decisions: allow | ask | deny.
 policy:
@@ -47,6 +47,13 @@ policy:
     external: ask
   tools: {}                # e.g. {send_email: deny}
   integrations: {}         # e.g. {email: ask}
+
+# Daily briefing: `gabe brief` runs it now; `gabe schedule` runs it at this time.
+# Read-only: the briefing can look at tasks, notes and email but can't change or send anything.
+briefing:
+  time: "08:00"            # company timezone
+  days: [mon, tue, wed, thu, fri]
+  # output_dir: ../data/briefings
 
 # Specialists Gabe can hand work to. `tools` limits what each one can use.
 delegates:
@@ -61,4 +68,4 @@ delegates:
     instructions: |
       Write in the company's voice: plain, warm, brief. Check memory for context on
       recipients before writing.
-    tools: [recall, send_email]
+    tools: [recall, search_email, read_email, draft_email, send_email]

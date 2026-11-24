@@ -54,11 +54,14 @@ approver and audit log, and it returns a report to Gabe.
 
 ## Roadmap
 
-1. Channels: Slack/Teams bot and inbound email, so people talk to Gabe where they work.
-2. Scheduler: recurring jobs (morning brief, Monday review, overdue chasers).
-3. Real connectors: Google Workspace / Microsoft 365 (mail, calendar, docs), HRIS,
-   ticketing. MCP client support so existing MCP servers plug in as integrations.
-4. Persistent sessions and per-user identity/permissions.
-5. Durable storage (Postgres) behind the memory and tasks integrations.
-6. Local inference: serve GLM 5.3 with vLLM/SGLang, run the test suite and an eval set
+Done: Gmail access (search, read, draft, send), daily briefing (`gabe brief`, `gabe schedule`).
+
+1. **Web UI**: planned in [UI_PLAN.md](UI_PLAN.md). Needs async approvals and persistent sessions first.
+2. **Slack integration**: talk to Gabe in DMs and channels, approve actions with Slack
+   buttons, post the daily brief to a channel. Built on the same API and approval queue
+   as the web UI.
+3. More connectors: Google Calendar and Docs, HRIS, ticketing. MCP client support so
+   existing MCP servers plug in as integrations.
+4. Durable storage (Postgres) behind the memory, tasks and audit integrations.
+5. Local inference: serve GLM 5.3 with vLLM/SGLang, run the test suite and an eval set
    against both providers, then cut over.

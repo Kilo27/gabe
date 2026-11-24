@@ -50,15 +50,7 @@ def load_dotenv(path: str = ".env") -> None:
             os.environ.setdefault(key.strip(), value)
 
 
-def main(argv: list[str] | None = None) -> int:
-    load_dotenv()
-    ap =argparse.ArgumentParser(prog="gabe", description="Gabe, your AI chief of staff.")
-    ap.add_argument("-c", "--config", help="Path to company config (default: $GABE_CONFIG or config/gabe.yaml)")
-    ap.add_argument("-m", "--message", help="Run a single request and exit")
-    ap.add_argument("--unattended", action="store_true", help="Refuse every action that needs approval")
-    args = ap.parse_args(argv)
-
-    cfg = load_config(args.config)
+def _chat(cfg, args) -> int:
     gabe = build_gabe(
         cfg,
         approver=deny_all if args.unattended else terminal_approver,
@@ -92,6 +84,75 @@ def main(argv: list[str] | None = None) -> int:
             print("Conversation cleared.")
             continue
         ask(text)
+
+
+def _show_brief(text: str, path) -> None:
+    print(text)
+    print(f"\n{DIM}Saved to {path}{RESET}", file=sys.stderr)
+
+
+def _brief(cfg, args) -> int:
+    from gabe.briefing import run_briefing
+
+    _show_brief(*run_briefing(cfg, on_event=print_event))
+    return 0
+
+
+def _schedule(cfg, args) -> int:
+    from datetime import datetime
+
+    from gabe.briefing import BriefingSettings, company_tz, next_run, run_scheduler
+
+    s = BriefingSettings.from_config(cfg)
+    first = next_run(datetime.now(company_tz(cfg)), s.time, s.days)
+    print(f"Daily briefing at {s.time} on {', '.join(s.days)}. Next: {first:%a %Y-%m-%d %H:%M %Z}. Ctrl-C to stop.")
+    try:
+        run_scheduler(
+            cfg,
+            on_brief=_show_brief,
+            on_error=lambda e: print(f"[briefing failed] {type(e).__name__}: {e}", file=sys.stderr),
+        )
+    except KeyboardInterrupt:
+        print()
+    return 0
+
+
+def _auth(cfg, args) -> int:
+    from gabe.integrations import IntegrationContext
+    from gabe.integrations.email import gmail_paths
+    from gabe.integrations.gmail_backend import build_service, load_credentials
+
+    spec = next((i for i in cfg.integrations if i.name == "email"), None)
+    if not spec or spec.settings.get("backend") != "gmail":
+        print("The email integration isn't set to `backend: gmail` in config.", file=sys.stderr)
+        return 1
+    ctx = IntegrationContext("email", spec.settings, cfg.data_dir, cfg)
+    creds_path, token_path = gmail_paths(ctx)
+    creds = load_credentials(creds_path, token_path, interactive=True)
+    profile = build_service(creds).users().getProfile(userId="me").execute()
+    print(f"Gmail authorised for {profile['emailAddress']}. Token saved to {token_path}.")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    load_dotenv()
+    ap = argparse.ArgumentParser(prog="gabe", description="Gabe, your AI chief of staff.")
+    ap.add_argument("-c", "--config", help="Path to company config (default: $GABE_CONFIG or config/gabe.yaml)")
+    sub = ap.add_subparsers(dest="command")
+
+    chat = sub.add_parser("chat", help="Talk to Gabe (default)")
+    for p in (ap, chat):
+        p.add_argument("-m", "--message", help="Run a single request and exit")
+        p.add_argument("--unattended", action="store_true", help="Refuse every action that needs approval")
+    sub.add_parser("brief", help="Produce today's daily briefing now")
+    sub.add_parser("schedule", help="Run forever, producing the daily briefing at the configured time")
+    auth = sub.add_parser("auth", help="Authorise an integration")
+    auth.add_argument("service", choices=["gmail"])
+
+    args = ap.parse_args(argv)
+    cfg = load_config(args.config)
+    handler = {"brief": _brief, "schedule": _schedule, "auth": _auth}.get(args.command, _chat)
+    return handler(cfg, args)
 
 
 if __name__ == "__main__":

@@ -16,10 +16,13 @@ lives in configuration, playbooks and pluggable integrations, not in the core.
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e '.[dev]'
+pip install -e '.[dev,gmail]'
 export ANTHROPIC_API_KEY=...        # or: ant auth login
 gabe                                # interactive, uses config/gabe.yaml
 gabe -m "Give me the weekly brief"  # one-shot
+gabe brief                          # today's daily briefing (saved to data/briefings/)
+gabe schedule                       # run the briefing every weekday at the configured time
+gabe auth gmail                     # connect Gmail (see docs/GMAIL_SETUP.md)
 gabe --unattended -m "..."          # refuses anything that needs approval
 pytest                              # tests use a scripted provider, no API calls
 ```
@@ -76,6 +79,20 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design.
 - `core`: current time in the company timezone
 - `memory`: remember / recall / forget durable notes
 - `tasks`: create, list and update tasks with owners and due dates
-- `email`: `send_email` via an **outbox** backend (writes to disk, doesn't deliver yet)
+- `email`: Gmail / Google Workspace (`search_email`, `read_email`, `draft_email`,
+  `send_email`, `mark_email_read`), or an `outbox` backend that saves outgoing mail to disk without delivering it. See [docs/GMAIL_SETUP.md](docs/GMAIL_SETUP.md).
+
+## Daily briefing
+
+`gabe brief` runs a **read-only** Gabe. It can look at tasks, notes and email, but it
+can't change or send anything. It writes the brief to the terminal and to
+`data/briefings/YYYY-MM-DD.md`, using the structure in
+`config/playbooks/daily-brief.md`. `gabe schedule` runs it at `briefing.time` on
+`briefing.days`. Alternatively, call `gabe brief` from cron or launchd.
+
+## Planned
+
+- Web UI: [docs/UI_PLAN.md](docs/UI_PLAN.md)
+- Slack integration: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#roadmap)
 
 Every tool call is appended to `data/audit.jsonl`.

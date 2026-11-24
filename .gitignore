@@ -7,3 +7,5 @@ data/
 *.egg-info/
 dist/
 build/
+*client_secret*.json
+*token*.json

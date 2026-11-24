@@ -36,6 +36,7 @@ class Config:
     integrations: list[IntegrationSpec] = field(default_factory=list)
     policy: dict[str, Any] = field(default_factory=dict)
     delegates: list[DelegateSpec] = field(default_factory=list)
+    briefing: dict[str, Any] = field(default_factory=dict)
 
     def playbooks(self) -> list[tuple[str, str]]:
         if not self.playbooks_dir or not self.playbooks_dir.is_dir():
@@ -81,4 +82,5 @@ def load_config(path: str | os.PathLike[str] | None = None) -> Config:
         integrations=integrations,
         policy=raw.get("policy") or {},
         delegates=delegates,
+        briefing=raw.get("briefing") or {},
     )
