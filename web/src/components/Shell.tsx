@@ -160,9 +160,9 @@ export function Shell({ children }: { children: ReactNode }) {
           </div>
         </div>
         <nav className="nav">
-          {AREAS.slice(0, 4).map((a) => <NavItem key={a.id} id={a.id} />)}
+          {AREAS.slice(0, 5).map((a) => <NavItem key={a.id} id={a.id} />)}
           <div className="nav-sep" />
-          {AREAS.slice(4, 7).map((a) => <NavItem key={a.id} id={a.id} />)}
+          {AREAS.slice(5, 8).map((a) => <NavItem key={a.id} id={a.id} />)}
           <div className="nav-sep" />
           <NavItem id="settings" />
         </nav>
@@ -199,7 +199,7 @@ export function Shell({ children }: { children: ReactNode }) {
           <div className="sheet-backdrop" style={{ zIndex: 35 }} onClick={() => setMore(false)} />
           <div className="more-sheet">
             <nav className="nav">
-              {AREAS.slice(4).map((a) => <NavItem key={a.id} id={a.id} />)}
+              {AREAS.filter((a) => !PRIMARY.includes(a.id)).map((a) => <NavItem key={a.id} id={a.id} />)}
             </nav>
             <div className="theme-switch" role="group" aria-label="Colour theme" style={{ marginTop: 8 }}>
               {([["light", Sun, "Light"], ["system", Monitor, "Auto"], ["dark", Moon, "Dark"]] as const).map(([v, Icon, label]) => (

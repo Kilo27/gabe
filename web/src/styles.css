@@ -108,7 +108,7 @@
 
 /* Area scoping: any element with data-area gets --hue / --hue-ink / --hue-soft. */
 [data-area="today"] { --hue: var(--today); --hue-ink: var(--today-ink); }
-[data-area="ask"] { --hue: var(--ask); --hue-ink: var(--ask-ink); }
+[data-area="ask"], [data-area="conversations"] { --hue: var(--ask); --hue-ink: var(--ask-ink); }
 [data-area="approvals"] { --hue: var(--approvals); --hue-ink: var(--approvals-ink); }
 [data-area="tasks"] { --hue: var(--tasks); --hue-ink: var(--tasks-ink); }
 [data-area="inbox"] { --hue: var(--inbox); --hue-ink: var(--inbox-ink); }
