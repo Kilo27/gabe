@@ -31,7 +31,7 @@ members:
     Write in the company's voice: plain, warm, brief. Check memory for context on recipients
     before writing.
   reports_to: chief
-  skills: [recall, search_email, read_email, draft_email, send_email]
+  skills: [recall, search_email, read_email, draft_email, send_email, mark_email_read]
   freedom: standard
   active: true
 - id: inbox
@@ -43,4 +43,15 @@ members:
   reports_to: comms
   skills: [search_email, read_email, recall]
   freedom: look_only
+  active: true
+- id: notes
+  name: Notes keeper
+  job: Keeps the record of decisions, commitments, preferences and people.
+  instructions: |-
+    Save what you're given as clear, self-contained notes with good topics and tags. Check for an
+    existing note first; replace a stale one rather than saving a duplicate. When asked what's
+    known about something, search broadly.
+  reports_to: chief
+  skills: [get_current_time, remember, recall, forget]
+  freedom: standard
   active: true

@@ -21,6 +21,27 @@ def base_registry(cfg: Config) -> ToolRegistry:
     return registry
 
 
+def team_coverage(team: Team, available: set[str]) -> set[str]:
+    """Every tool some working team member (at any level under Gabe) can use."""
+    covered: set[str] = set()
+    todo = [CHIEF_ID]
+    while todo:
+        for m in team.reports(todo.pop()):
+            covered |= available if m.skills is None else set(m.skills) & available
+            todo.append(m.id)
+    return covered
+
+
+def chief_tools(cfg: Config, team: Team, available: set[str]) -> list[str] | None:
+    """With a team, Gabe is a dispatcher: it keeps its own lookup tools (assistant.own_tools)
+    and hands the rest to the team. Anything no working member can do (say their manager is
+    paused) stays with Gabe, so nothing becomes impossible. Without a team, Gabe has it all."""
+    if not team.reports(CHIEF_ID):
+        return None
+    covered = team_coverage(team, available)
+    return sorted(n for n in available if n in cfg.own_tools or n not in covered)
+
+
 def build_gabe(
     cfg: Config,
     approver: Approver = deny_all,
@@ -100,11 +121,12 @@ def build_gabe(
         )
 
     top = (cfg.assistant_name,)
+    chief_reports = team.reports(CHIEF_ID)
     return Agent(
         name=cfg.assistant_name,
         provider=provider,
-        system=chief_of_staff_prompt(cfg, team.reports(CHIEF_ID)),
-        registry=with_delegation(tools.subset(None), CHIEF_ID, top),
+        system=chief_of_staff_prompt(cfg, chief_reports, dispatcher=bool(chief_reports)),
+        registry=with_delegation(tools.subset(chief_tools(cfg, team, available)), CHIEF_ID, top),
         policy=policy,
         approver=approver,
         audit=audit,

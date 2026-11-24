@@ -11,6 +11,10 @@ from typing import Any
 import yaml
 
 
+# What Gabe keeps for itself when it has a team: enough to brief them well.
+DEFAULT_OWN_TOOLS = ("get_current_time", "recall")
+
+
 @dataclass
 class IntegrationSpec:
     name: str  # built-in name ("tasks") or dotted module path ("acme_gabe.crm")
@@ -29,6 +33,8 @@ class DelegateSpec:
 class Config:
     root: Path
     assistant_name: str = "Gabe"
+    # Tools Gabe uses directly when it has a team; the rest is done by team members.
+    own_tools: list[str] = field(default_factory=lambda: list(DEFAULT_OWN_TOOLS))
     company: dict[str, Any] = field(default_factory=dict)
     provider: dict[str, Any] = field(default_factory=lambda: {"kind": "anthropic"})
     data_dir: Path = Path("data")
@@ -94,6 +100,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> Config:
     return Config(
         root=root,
         assistant_name=(raw.get("assistant") or {}).get("name", "Gabe"),
+        own_tools=list((raw.get("assistant") or {}).get("own_tools", DEFAULT_OWN_TOOLS)),
         company=raw.get("company") or {},
         provider=raw.get("provider") or {"kind": "anthropic"},
         data_dir=rel(raw.get("data_dir", "../data")),

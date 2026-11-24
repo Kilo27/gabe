@@ -59,6 +59,11 @@ decision (`stricter()` of company rule and freedom level). Agents carry a `path`
 Validation refuses loops, unknown managers and chains deeper than `MAX_DEPTH` (4).
 Paused members drop out with their whole branch.
 
+**Gabe dispatches.** When Gabe has direct reports it gets a dispatcher prompt and only
+`assistant.own_tools` plus `delegate`, so the team does the work. Tools no working member
+covers (`team_coverage`) stay with Gabe, so pausing a branch never strands an action. The
+briefing agent is built separately with the hands-on prompt and read-only tools.
+
 **Team page.** `gabe ui` (`gabe/ui/server.py`) is a standard-library HTTP server bound
 to 127.0.0.1 serving one static page. It edits the team file, runs requests in a
 background thread, and turns the blocking `Approver` into a wait on a

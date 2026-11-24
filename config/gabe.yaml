@@ -3,6 +3,9 @@
 
 assistant:
   name: Gabe
+  # With a team (team.yaml), Gabe only uses these tools itself and hands everything else
+  # to the team. Anything no active team member can do stays with Gabe.
+  own_tools: [get_current_time, recall]
 
 company:
   name: Example Co

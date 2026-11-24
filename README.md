@@ -110,8 +110,14 @@ direct reports (up to 4 levels deep). The example team in `config/team.yaml`:
 ```
 Gabe
 ├── Operations lead ── Scheduler
-└── Communications ─── Inbox triage
+├── Communications ─── Inbox triage
+└── Notes keeper
 ```
+
+With a team, Gabe is a dispatcher: it does very little itself and hands requests to the
+member whose job fits. It keeps only `assistant.own_tools` (default: checking the time and
+looking up notes) so it can brief people well, plus any action that no active team member
+can do. With no team, Gabe does everything itself. The daily brief run is always hands-on.
 
 `gabe ui` opens a local page (http://127.0.0.1:8765, this machine only) written for
 people who don't read code:
