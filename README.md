@@ -169,8 +169,14 @@ Claude Code (your own notes go in `CLAUDE.local.md`).
   hands the request to Claude Code. Every request needs a person's OK. Claude Code runs
   restricted (no shell, only that folder); the folder is backed up to
   `data/claude_code/backups/` first and checked after; a change that fails the check gets
-  one fix-up, then is undone. It uses your own Claude Code sign-in unless
-  `use_gabe_api_key: true`. Not offered when Claude Code isn't installed.
+  one fix-up, then is undone. Not offered when Claude Code isn't installed.
+- Claude Code runs on Gabe's own model setup: with `provider: anthropic`, Gabe's API key
+  and model; with `provider: openai_compatible` (GLM on vLLM, LiteLLM...), the same server,
+  key and model through its Anthropic-format API (`…/v1` → `…/v1/messages`), for every
+  tier, with Anthropic telemetry off. Where that API lives elsewhere (Z.ai:
+  `https://api.z.ai/api/anthropic`), set `base_url` and `auth_token: "${VAR}"` under
+  `claude_code`. `model:` there overrides the model; `use_claude_login: true` uses your
+  own Claude sign-in instead. With no Gabe API key set, it falls back to that sign-in.
 - `gabe check` (in the app: `Gabe.app/Contents/MacOS/Gabe check`) checks the folder after
   any edit.
 

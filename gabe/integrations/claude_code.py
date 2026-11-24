@@ -4,10 +4,17 @@
       - name: claude_code
         settings:
           # binary: /opt/homebrew/bin/claude   # found automatically when left out
-          # model: sonnet                       # Claude Code's default when left out
+          # model: sonnet                       # default: the model Gabe runs on
+          # base_url: https://api.z.ai/api/anthropic   # an Anthropic-format endpoint, when
+          # auth_token: "${ZAI_API_KEY}"               #   it isn't derivable from `provider:`
           # timeout: 600                        # seconds
           # max_budget_usd: 2                   # per change
-          # use_gabe_api_key: false             # true: bill Gabe's API key, not your Claude login
+          # use_claude_login: false             # true: your own Claude login instead
+
+Claude Code runs on the same model and credentials as Gabe (see `endpoint`): with
+`provider: anthropic`, Gabe's API key and model; with `provider: openai_compatible` (e.g. GLM
+on vLLM), the same server and model through its Anthropic-format API, which vLLM and LiteLLM
+serve next to the OpenAI one. Set `base_url` when it lives elsewhere (Z.ai).
 
 Claude Code runs non-interactively and restricted (`--restricted`: no shell or other
 code-running tools, file tools confined to the config folder) with the folder's CLAUDE.md
@@ -25,6 +32,7 @@ import filecmp
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -64,7 +72,8 @@ def setup(registry: ToolRegistry, ctx) -> None:
         if not _lock.acquire(timeout=5):
             raise RuntimeError("Another change to Gabe's setup is in progress. Try again when it's done.")
         try:
-            return run_change(claude, config_path, ctx.path("backups"), request.strip(), ctx.settings)
+            return run_change(claude, config_path, ctx.path("backups"), request.strip(), ctx.settings,
+                              ctx.config.provider)
         finally:
             _lock.release()
 
@@ -90,9 +99,10 @@ def setup(registry: ToolRegistry, ctx) -> None:
 # -- one change -------------------------------------------------------------------------
 
 
-def run_change(claude: str, config_path: Path, backups: Path, request: str, settings: dict) -> str:
+def run_change(claude: str, config_path: Path, backups: Path, request: str, settings: dict,
+               provider: dict | None = None) -> str:
     from gabe.check import check_config
-    from gabe.claude_code import ensure_guide, search_path
+    from gabe.claude_code import ensure_guide
 
     if not request:
         raise ValueError("Say what to change.")
@@ -103,11 +113,8 @@ def run_change(claude: str, config_path: Path, backups: Path, request: str, sett
         shutil.rmtree(backup)
     shutil.copytree(folder, backup, ignore=shutil.ignore_patterns(*_SKIP))
 
-    env = dict(os.environ, PATH=search_path())
-    if not settings.get("use_gabe_api_key"):
-        # Claude Code uses the person's own Claude login, not the key Gabe runs on.
-        for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"):
-            env.pop(k, None)
+    env, model = claude_env(provider, settings, os.environ)
+    settings = {**settings, "model": model}
     timeout = float(settings.get("timeout") or 600)
 
     try:
@@ -139,6 +146,59 @@ def run_change(claude: str, config_path: Path, backups: Path, request: str, sett
     return "\n".join(lines)
 
 
+# Everything that points Claude Code at a model; cleared so only what Gabe decides applies.
+_ENDPOINT_VARS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL",
+                  "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL",
+                  "ANTHROPIC_DEFAULT_HAIKU_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL")
+
+
+def endpoint(provider: dict | None, settings: dict, environ) -> dict | None:
+    """Where Claude Code's model calls go: {base_url, api_key, auth_token, model}, or None for
+    the person's own Claude login. Explicit claude_code settings win, then Gabe's provider."""
+    from gabe.integrations.mcp import expand
+
+    if settings.get("use_claude_login"):
+        return None
+    provider = provider or {"kind": "anthropic"}
+    kind = provider.get("kind", "anthropic")
+    model = settings.get("model") or provider.get("model")
+    if settings.get("base_url"):
+        return {"base_url": expand(str(settings["base_url"])),
+                "auth_token": expand(str(settings.get("auth_token") or provider.get("api_key") or "")),
+                "model": model, "custom": True}
+    if kind == "openai_compatible":
+        base = re.sub(r"/v1/?$", "", str(provider.get("base_url") or "http://localhost:8000/v1").rstrip("/"))
+        return {"base_url": base, "auth_token": str(provider.get("api_key") or "EMPTY"),
+                "model": model, "custom": True}
+    # Anthropic: the same key (and endpoint, if Gabe uses one) the Anthropic client resolves.
+    key, token = environ.get("ANTHROPIC_API_KEY"), environ.get("ANTHROPIC_AUTH_TOKEN")
+    if not key and not token:
+        return None
+    return {"base_url": environ.get("ANTHROPIC_BASE_URL"), "api_key": key, "auth_token": token,
+            "model": model, "custom": False}
+
+
+def claude_env(provider: dict | None, settings: dict, environ) -> tuple[dict, str | None]:
+    """The environment and --model for a Claude Code run that matches Gabe's own model setup."""
+    from gabe.claude_code import search_path
+
+    env = {k: v for k, v in environ.items() if k not in _ENDPOINT_VARS}
+    env["PATH"] = search_path()
+    ep = endpoint(provider, settings, environ)
+    if ep is None:
+        return env, settings.get("model")
+    for var, key in (("ANTHROPIC_BASE_URL", "base_url"), ("ANTHROPIC_API_KEY", "api_key"),
+                     ("ANTHROPIC_AUTH_TOKEN", "auth_token")):
+        if ep.get(key):
+            env[var] = ep[key]
+    if ep["custom"] and ep.get("model"):
+        # A non-Claude model (e.g. GLM): use it for every tier, and keep traffic on that server.
+        for var in _ENDPOINT_VARS[3:]:
+            env[var] = ep["model"]
+        env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
+    return env, ep.get("model")
+
+
 def _claude(claude: str, folder: Path, env: dict, timeout: float, settings: dict, prompt: str,
             resume: str | None = None) -> dict:
     cmd = [claude, "-p", "--output-format", "json", "--restricted", "--strict-mcp-config",
@@ -161,8 +221,8 @@ def _claude(claude: str, folder: Path, env: dict, timeout: float, settings: dict
     if proc.returncode != 0 or out.get("is_error"):
         detail = (out.get("result") or proc.stderr or proc.stdout or "").strip()[:500]
         if "/login" in detail or "not logged in" in detail.lower():
-            detail = ("Claude Code isn't signed in. Run `claude` in Terminal once and sign in, or set "
-                      "use_gabe_api_key: true under claude_code in gabe.yaml.")
+            detail = ("Claude Code has no model to use: add Gabe's API key in Settings, or run `claude` "
+                      "in Terminal once and sign in.")
         raise RuntimeError(f"Claude Code failed: {detail or f'exit code {proc.returncode}'}")
     return out
 

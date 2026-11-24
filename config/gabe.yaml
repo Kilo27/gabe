@@ -54,7 +54,10 @@ integrations:
   # Gabe changes its own setup (rules, team, playbooks, integrations) by handing the request
   # to Claude Code, after a person approves. Skipped when Claude Code isn't installed.
   - claude_code
-  #   settings: {model: sonnet, timeout: 600, max_budget_usd: 2, use_gabe_api_key: false}
+  # It runs on the same model and key as `provider:` (GLM included). Optional overrides:
+  #   settings: {model: sonnet, timeout: 600, max_budget_usd: 2,
+  #              base_url: https://api.z.ai/api/anthropic, auth_token: "${ZAI_API_KEY}",
+  #              use_claude_login: false}
   # MCP servers: each server's tools become actions named <server>__<tool>.
   # Needs `pip install 'gabe[mcp]'`. Tools are `external` unless set otherwise below;
   # policy.integrations takes the server name (e.g. {notion: ask}).

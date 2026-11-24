@@ -173,7 +173,7 @@ def test_change_runs_claude_restricted_in_the_folder_and_reports(install, tmp_pa
     assert c["cwd"] == str(install.parent.resolve()) and c["guide"]
     assert "--restricted" in c["argv"] and "-p" in c["argv"]
     assert c["argv"][c["argv"].index("--permission-mode") + 1] == "acceptEdits"
-    assert not c["has_key"]  # uses the person's Claude login, not Gabe's API key
+    assert c["has_key"]  # Gabe's own API key, as Gabe runs on Anthropic
     backups = list((install.parent.parent / "data" / "claude_code" / "backups").iterdir())
     assert len(backups) == 1 and not (backups[0] / "playbooks" / "onboarding.md").exists()
 
@@ -197,7 +197,7 @@ def test_a_change_that_stays_broken_is_undone(install, tmp_path):
 
 
 def test_claude_failure_undoes_partial_edits(install):
-    with pytest.raises(RuntimeError, match=r"isn't signed in.*Its partial changes were undone"):
+    with pytest.raises(RuntimeError, match=r"has no model to use.*Its partial changes were undone"):
         change(install, "please fail")
     assert not (install.parent / "playbooks" / "half.md").exists()
 
@@ -216,6 +216,54 @@ def test_every_change_needs_a_persons_ok_and_works_through_gabe(install, tmp_pat
     build_gabe(cfg, provider=p, approver=lambda t, a: asked.append(a["request"]) or True).send("x")
     assert asked == ["add an onboarding playbook"]
     assert "onboarding.md" in results(p)[0][0].content
+
+
+# -- same model setup as Gabe ----------------------------------------------------------------
+
+
+def test_claude_code_uses_gabes_anthropic_key_and_model():
+    from gabe.integrations.claude_code import claude_env
+
+    environ = {"ANTHROPIC_API_KEY": "sk-gabe", "ANTHROPIC_MODEL": "stale", "HOME": "/h"}
+    env, model = claude_env({"kind": "anthropic", "model": "claude-opus-5-5"}, {}, environ)
+    assert env["ANTHROPIC_API_KEY"] == "sk-gabe" and model == "claude-opus-5-5"
+    assert "ANTHROPIC_MODEL" not in env and "ANTHROPIC_BASE_URL" not in env and env["HOME"] == "/h"
+    _, model = claude_env({"kind": "anthropic", "model": "claude-opus-5-5"}, {"model": "sonnet"}, environ)
+    assert model == "sonnet"
+
+
+def test_claude_code_uses_gabes_glm_server_for_every_tier():
+    from gabe.integrations.claude_code import claude_env
+
+    provider = {"kind": "openai_compatible", "base_url": "http://gpu-box.local:8000/v1", "model": "glm-5.3",
+                "api_key": "local-key"}
+    env, model = claude_env(provider, {}, {"ANTHROPIC_API_KEY": "sk-gabe-old"})
+    assert env["ANTHROPIC_BASE_URL"] == "http://gpu-box.local:8000"
+    assert env["ANTHROPIC_AUTH_TOKEN"] == "local-key" and "ANTHROPIC_API_KEY" not in env
+    assert model == "glm-5.3" and env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == "glm-5.3"
+    assert env["ANTHROPIC_DEFAULT_OPUS_MODEL"] == env["CLAUDE_CODE_SUBAGENT_MODEL"] == "glm-5.3"
+    assert env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] == "1"
+
+
+def test_explicit_endpoint_and_login_override(monkeypatch):
+    from gabe.integrations.claude_code import claude_env
+
+    monkeypatch.setenv("ZAI_KEY", "z-123")
+    provider = {"kind": "openai_compatible", "base_url": "https://api.z.ai/api/paas/v4", "model": "glm-5.3"}
+    env, model = claude_env(provider, {"base_url": "https://api.z.ai/api/anthropic",
+                                       "auth_token": "${ZAI_KEY}"}, {})
+    assert env["ANTHROPIC_BASE_URL"] == "https://api.z.ai/api/anthropic"
+    assert env["ANTHROPIC_AUTH_TOKEN"] == "z-123" and model == "glm-5.3"
+    env, model = claude_env({"kind": "anthropic", "model": "claude-opus-5-5"}, {"use_claude_login": True},
+                            {"ANTHROPIC_API_KEY": "sk-gabe"})
+    assert "ANTHROPIC_API_KEY" not in env and model is None
+
+
+def test_no_gabe_key_falls_back_to_the_claude_login():
+    from gabe.integrations.claude_code import claude_env
+
+    env, model = claude_env({"kind": "anthropic", "model": "claude-opus-5-5"}, {}, {"PATH": "/bin"})
+    assert not any(k.startswith("ANTHROPIC_") for k in env) and model is None
 
 
 # -- the app --------------------------------------------------------------------------------
