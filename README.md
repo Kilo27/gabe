@@ -42,7 +42,11 @@ gabe app                        # run it from source instead
   first launch copies a starter config there. `GABE_HOME` overrides the location.
 - The Anthropic API key is entered in Settings → AI model and kept in the macOS Keychain.
 - Gmail: Settings → Email → Choose file… (the Google OAuth client JSON), then Connect Gmail.
-- The daily brief is written on schedule while the app is open.
+- The daily brief is written on schedule while the app is open. If it was missed (the app
+  was closed or crashed at brief time), it's written when the app next starts.
+- Work cut off by a restart or crash is picked up again on start. Gabe gets the original
+  request and the steps already done, so it doesn't repeat them. A job that keeps taking the
+  app down is stopped after two retries. Approvals and questions left unanswered are asked again.
 - Attach a task when you give a bot a job (the paperclip on an agent card or in a
   conversation), or use "Give to a bot" on a task. The bot gets the task's details and is
   asked to keep it updated, and the task shows which bot has it.

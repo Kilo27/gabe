@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import csv
 import io
+import threading
 import json
 import os
 import re
@@ -31,12 +32,22 @@ PERSON = "You (web app)"
 DECISIONS = ("allow", "ask", "deny")
 
 
-def create_app(config_path: str | Path, token: str | None = None, desktop: bool = False) -> FastAPI:
+def create_app(config_path: str | Path, token: str | None = None, desktop: bool = False,
+               resume_when: "threading.Event | None" = None) -> FastAPI:
     """`token`: when set, every /api call must carry it (X-Gabe-Token). The desktop app sets a
     fresh one per launch so other programs and web pages on this computer can't use the API."""
     state = WebState(Path(config_path))
     app = FastAPI(title="Gabe", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.gabe = state
+
+    def pick_up_interrupted():
+        # Work a restart or crash cut off carries on. The desktop app waits until the API key
+        # has loaded (`resume_when`), so the resumed runs can reach the model.
+        if resume_when is not None:
+            resume_when.wait()
+        state.resumed = state.sessions.resume_interrupted()
+
+    threading.Thread(target=pick_up_interrupted, daemon=True, name="resume").start()
 
     if token:
         import hmac

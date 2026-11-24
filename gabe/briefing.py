@@ -129,13 +129,33 @@ def next_run(now: datetime, at: str, days: list[str]) -> datetime:
     return candidate
 
 
+def missed_brief(cfg: Config, now: datetime | None = None) -> bool:
+    """True when today's brief was due (a brief day, after the brief time) but wasn't written,
+    e.g. because the app was closed or crashed at that time."""
+    s = BriefingSettings.from_config(cfg)
+    now = now or datetime.now(company_tz(cfg))
+    if s.paused or DAYS[now.weekday()] not in s.days:
+        return False
+    hour, minute = (int(x) for x in s.time.split(":"))
+    due = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    return now >= due and not (s.output_dir / f"{now:%Y-%m-%d}.md").exists()
+
+
 def run_scheduler(
     cfg: Config,
     on_brief: Callable[[str, Path], None],
     on_error: Callable[[Exception], None],
     sleep: Callable[[float], None] = time.sleep,
 ) -> None:
-    """Run forever, producing a briefing at the configured time."""
+    """Run forever, producing a briefing at the configured time. Catches up first if today's
+    brief was missed while nothing was running."""
+    if missed_brief(cfg):
+        try:
+            text, path = run_briefing(cfg)
+            on_brief(text, path)
+            email_briefing(cfg, text)
+        except Exception as e:
+            on_error(e)
     settings = BriefingSettings.from_config(cfg)
     tz = company_tz(cfg)
     while True:

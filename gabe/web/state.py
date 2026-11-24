@@ -10,6 +10,7 @@ when the server stops are marked expired on the next start; Gabe was told no.
 
 from __future__ import annotations
 
+import json
 import shutil
 import threading
 import uuid
@@ -70,6 +71,7 @@ class ApprovalQueue:
                 if a["status"] == "pending":
                     a["status"] = "expired"
                     a["decided"] = now()
+                    a["note"] = "The app closed before this was answered."
         self.store.update(expire)
 
     def all(self) -> list[dict[str, Any]]:
@@ -164,18 +166,16 @@ class Sessions:
         root.mkdir(parents=True, exist_ok=True)
         self._live: dict[str, _Live] = {}
         self._guard = threading.Lock()
-        # Mark runs that were cut off by a restart.
+        # Replies cut off by a restart or crash are picked up again by resume_interrupted().
+        self.interrupted: list[tuple[str, str]] = []  # (session id, reply message id)
         for p in root.glob("*.json"):
             store = JsonStore(p, {})
 
-            def fix(s):
+            def fix(s, sid=p.stem):
                 for m in s.get("messages", []):
-                    if m.get("status") in ("working", "waiting"):
-                        m["status"] = "error"
-                        m["text"] = m.get("text") or (
-                            "This reply was interrupted because the Gabe app restarted. "
-                            "Send your message again to continue."
-                        )
+                    if m.get("status") in ("working", "waiting", "interrupted"):
+                        m["status"] = "interrupted"
+                        self.interrupted.append((sid, m["id"]))
                 s["status"] = "idle"
 
             store.update(fix)
@@ -323,7 +323,8 @@ class Sessions:
         if task:
             user_msg["task"] = {"id": task["id"], "title": task["title"]}
             prompt = f"{text}\n\n{task_brief(task)}"
-        reply = {"id": new_id(), "role": "assistant", "text": "", "ts": now(), "status": "working", "activity": []}
+        reply = {"id": new_id(), "role": "assistant", "text": "", "ts": now(), "status": "working", "activity": [],
+                 "prompt": prompt}  # kept so the work can be picked up again after a restart
 
         def add(s):
             if not s["messages"] and s["title"] == "New conversation":
@@ -333,7 +334,12 @@ class Sessions:
             s["status"] = "running"
             s["updated"] = now()
         self._store(sid).update(add)
-        live.message_id = reply["id"]
+        self._run(sid, live, reply["id"], prompt)
+        return reply
+
+    def _run(self, sid: str, live: "_Live", reply_id: str, prompt: str) -> None:
+        """Run the agent on `prompt` in the background, filling in reply `reply_id`."""
+        live.message_id = reply_id
         live.last_thought = ""
         root = live.agent.name
         self.app.track("start", {"agent": root}, sid)
@@ -344,13 +350,60 @@ class Sessions:
                 patch = {"text": answer, "status": "done"}
             except Exception as e:  # shown in the chat, not raised
                 patch = {"text": friendly_error(e), "status": "error"}
-            self._patch_message(sid, reply["id"], lambda m: m.update(patch, ts=now()))
+            self._patch_message(sid, reply_id, lambda m: m.update(patch, ts=now()))
             self._store(sid).update(lambda s: s.update(status="idle"))
             live.running = False
             self.app.track("end", {"agent": root}, sid)
 
         threading.Thread(target=run, daemon=True, name=f"chat-{sid}").start()
-        return reply
+
+    MAX_RESUMES = 2  # a job that keeps taking the app down is stopped, not retried forever
+
+    def resume_interrupted(self) -> list[dict[str, Any]]:
+        """Pick up every reply that a restart or crash cut off. The agent gets the original
+        request plus the steps already done, so finished work (a sent email) isn't repeated."""
+        picked = []
+        for sid, mid in self.interrupted:
+            s = self._store(sid).load()
+            msgs = s.get("messages", [])
+            idx = next((i for i, m in enumerate(msgs) if m["id"] == mid), None)
+            if idx is None or msgs[idx].get("status") != "interrupted":
+                continue
+            reply = msgs[idx]
+            prompt = reply.get("prompt") or next(
+                (m["text"] for m in reversed(msgs[:idx]) if m["role"] == "user"), "")
+            attempts = reply.get("resumes", 0) + 1
+
+            def stop(text: str, m_id=mid, sid=sid):
+                self._patch_message(sid, m_id, lambda m: m.update(status="error", text=text, ts=now()))
+
+            if not prompt:
+                stop("This reply was cut off when the Gabe app closed. Send your message again to continue.")
+                continue
+            if attempts > self.MAX_RESUMES:
+                stop("This job was cut off by the app closing several times in a row, so Gabe stopped "
+                     "retrying it. Check what was done above, then send your message again if needed.")
+                continue
+            try:
+                self.app.check_not_paused(s.get("agent"))
+            except RuntimeError as e:
+                stop(f"This job was cut off when the Gabe app closed and wasn't restarted: {e}")
+                continue
+            live = self._live_for(sid)
+            with live.lock:
+                if live.running:
+                    continue
+                live.running = True
+
+            def mark(m, n=attempts):
+                m.update(status="working", resumes=n)
+                m["activity"].append({"kind": "resumed", "ts": now()})
+            self._patch_message(sid, mid, mark)
+            self._store(sid).update(lambda x: x.update(status="running"))
+            self._run(sid, live, mid, prompt + resume_note(reply.get("activity", [])))
+            picked.append({"session_id": sid, "title": s.get("title", ""), "agent": s.get("agent")})
+        self.interrupted = []
+        return picked
 
     def reset_idle(self) -> None:
         """Drop every idle conversation's agent so the next message rebuilds it (e.g. new API key)."""
@@ -394,6 +447,7 @@ class WebState:
         self.approvals = ApprovalQueue(self.web_dir / "approvals.json")
         self.sessions = Sessions(self.web_dir / "sessions", self)
         self.usage = JsonStore(self.web_dir / "usage.json", {"days": {}})
+        self.resumed: list[dict[str, Any]] = []  # interrupted work picked up on this start
         self.jobs: dict[str, dict[str, Any]] = {}
         self.jobs_lock = threading.Lock()
         # Live view of who is doing what: agent log name -> {"working": n, "now": {...}, "session": id}
@@ -515,6 +569,26 @@ def task_brief(task: dict[str, Any]) -> str:
     lines.append(f"Keep this task up to date as you work: if you can update tasks, set its status and add "
                  f"notes with update_task (id {task['id']}); otherwise say in your reply what should change.")
     return "\n".join(lines)
+
+
+def resume_note(activity: list[dict[str, Any]]) -> str:
+    """What the agent already did before the app closed, so it picks up rather than repeats."""
+    lines = []
+    for a in activity:
+        if a.get("kind") != "tool" or a.get("tool") == "ask_user":
+            continue
+        who = f"{a.get('agent')}: " if a.get("agent") else ""
+        inp = json.dumps(a.get("input"), default=str)[:300]
+        if a.get("outcome") == "ok":
+            lines.append(f"- {who}done: {a.get('tool')} {inp}")
+        elif a.get("outcome") == "declined_by_user":
+            lines.append(f"- {who}the user said no to: {a.get('tool')} {inp}")
+    done = "\n".join(lines) if lines else "- nothing recorded yet"
+    return (
+        "\n\n(The Gabe app closed while this was being worked on, so you're picking it back up. "
+        "These steps were already done before it closed. Don't repeat them; check the current "
+        f"state where it matters, then finish the job.\n{done})"
+    )
 
 
 def json_copy(x):
