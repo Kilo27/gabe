@@ -27,6 +27,35 @@ gabe --unattended -m "..."          # refuses anything that needs approval
 pytest                              # tests use a scripted provider, no API calls
 ```
 
+## Desktop app (macOS; Windows next)
+
+Gabe ships as a desktop app, not a website. It runs its own local service inside a native
+window; that service only accepts calls from its own window (a fresh token each launch).
+
+```bash
+pip install -e '.[desktop,gmail,build]'
+packaging/macos/build.sh        # → dist/macos/Gabe.app and Gabe.dmg (needs Node, ImageMagick)
+gabe app                        # run it from source instead
+```
+
+- Settings and data live in `~/Library/Application Support/Gabe/` (`config/`, `data/`); the
+  first launch copies a starter config there. `GABE_HOME` overrides the location.
+- The Anthropic API key is entered in Settings → AI model and kept in the macOS Keychain.
+- Gmail: Settings → Email → Choose file… (the Google OAuth client JSON), then Connect Gmail.
+- The daily brief is written on schedule while the app is open.
+- The build is ad-hoc signed, so other Macs show a Gatekeeper warning. For distribution set
+  `SIGN_ID` to a Developer ID certificate and notarize the .dmg.
+
+Home is **Agents**: a live map of who hands work to whom, each agent's actions today on a
+timeline, and controls per agent (give it a job, pause/resume, set what it may do, approve
+its requests). "Request an agent" has Gabe propose a new specialist for a role; you edit and
+approve it before it's added. Other screens: Today, Approvals, Tasks, Inbox, Notes, Activity,
+Settings.
+
+For UI work: `gabe web --no-open` and `cd web && npm run dev` (proxies `/api`), against the
+repo's `config/gabe.yaml`. Settings edits that file in place and keeps the original as
+`gabe.yaml.bak` (YAML comments are not preserved).
+
 ## How it adapts to a company
 
 | Lever | Where | What it does |
@@ -79,7 +108,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design.
 - `core`: current time in the company timezone
 - `memory`: remember / recall / forget durable notes
 - `tasks`: create, list and update tasks with owners and due dates
-- `email`: Gmail / Google Workspace (`search_email`, `read_email`, `draft_email`,
+- `email`: Gmail / Google Workspace, one or more mailboxes (`settings.accounts`; add them in the web app) (`search_email`, `read_email`, `draft_email`,
   `send_email`, `mark_email_read`), or an `outbox` backend that saves outgoing mail to disk without delivering it. See [docs/GMAIL_SETUP.md](docs/GMAIL_SETUP.md).
 
 ## Daily briefing

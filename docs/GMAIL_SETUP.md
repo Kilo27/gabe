@@ -25,6 +25,11 @@ gabe auth gmail
 A browser window opens. Sign in with the mailbox Gabe should use and approve the
 request. The token is saved to `data/email/gmail_token.json` (gitignored, mode 600).
 
+Or use **Settings → Email → Connect Gmail** in the web app. **Add mailbox** there connects
+more mailboxes (sign in with a different Google account). They're listed under
+`settings.accounts`; the first is the main one (the brief's "me"). With more than one, every
+email action takes an `account` and searches cover all mailboxes.
+
 ## What Gabe can do with it
 
 | Tool | Risk | Default policy |

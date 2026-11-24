@@ -1,0 +1,337 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, CheckCircle2, Loader2, Plus, Trash2 } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { NavLink, useParams } from "react-router-dom";
+import { GoogleButton } from "../components/GoogleButton";
+import { api, type Decision, type Job, type Settings } from "../api";
+import { Field, Markdown, Notice, PageHeader, Segmented, SkeletonList, useToast } from "../components/ui";
+import { DECISION_WORDS, RISK, humanize, tool } from "../lib/tools";
+
+const TABS = [
+  ["company", "Company"],
+  ["brief", "Daily brief"],
+  ["rules", "Approval rules"],
+  ["email", "Email"],
+  ["playbooks", "Playbooks"],
+  ["model", "API key"],
+] as const;
+type Tab = (typeof TABS)[number][0];
+const DAYS = [["mon", "Mon"], ["tue", "Tue"], ["wed", "Wed"], ["thu", "Thu"], ["fri", "Fri"], ["sat", "Sat"], ["sun", "Sun"]];
+
+function useSave(url: string, label = "Saved") {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: (body: unknown) => api.put<Settings>(url, body),
+    onSuccess: (s) => { qc.setQueryData(["settings"], s); qc.invalidateQueries({ queryKey: ["overview"] }); toast(label, "settings"); },
+    onError: (e: Error) => toast(e.message, "danger"),
+  });
+}
+
+function Section({ title, children, foot }: { title: string; children: ReactNode; foot?: ReactNode }) {
+  return (
+    <section className="panel" data-area="settings">
+      <div className="panel-head"><span className="swatch" /><h2>{title}</h2></div>
+      <div className="panel-pad stack">{children}</div>
+      {foot && <div className="panel-foot">{foot}</div>}
+    </section>
+  );
+}
+
+function SaveBtn({ m, onClick }: { m: { isPending: boolean }; onClick: () => void }) {
+  return <button className="btn btn-primary" onClick={onClick} disabled={m.isPending}>{m.isPending && <Loader2 size={15} className="spin" />} Save</button>;
+}
+
+function Company({ s }: { s: Settings }) {
+  const [f, setF] = useState(s.company);
+  const [name, setName] = useState(s.assistant_name);
+  const [facts, setFacts] = useState(Object.entries(s.company.facts));
+  const save = useSave("/api/settings/company");
+  return (
+    <Section title="Company" foot={<SaveBtn m={save} onClick={() => save.mutate({ ...f, assistant_name: name, facts: Object.fromEntries(facts) })} />}>
+      <div className="form-grid">
+        <Field label="Company name"><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
+        <Field label="Time zone"><input className="input" value={f.timezone} onChange={(e) => setF({ ...f, timezone: e.target.value })} placeholder="Europe/Dublin" /></Field>
+        <Field label="Assistant name"><input className="input" value={name} onChange={(e) => setName(e.target.value)} /></Field>
+      </div>
+      <Field label="About the company" hint="People, roles, regular meetings.">
+        <textarea className="textarea" rows={5} value={f.profile} onChange={(e) => setF({ ...f, profile: e.target.value })} />
+      </Field>
+      <div className="field">
+        <span>Other facts</span>
+        {facts.map(([k, v], i) => (
+          <div className="row" key={i} style={{ flexWrap: "nowrap" }}>
+            <input className="input" style={{ maxWidth: 220 }} value={k} aria-label="Fact name" onChange={(e) => setFacts(facts.map((x, j) => (j === i ? [e.target.value, x[1]] : x)))} />
+            <input className="input grow" value={v} aria-label="Fact value" onChange={(e) => setFacts(facts.map((x, j) => (j === i ? [x[0], e.target.value] : x)))} />
+            <button className="btn btn-ghost btn-icon btn-danger" aria-label="Remove fact" onClick={() => setFacts(facts.filter((_, j) => j !== i))}><Trash2 size={16} /></button>
+          </div>
+        ))}
+        <div><button className="btn btn-sm" onClick={() => setFacts([...facts, ["", ""]])}><Plus size={15} /> Add fact</button></div>
+      </div>
+    </Section>
+  );
+}
+
+function Brief({ s }: { s: Settings }) {
+  const [time, setTime] = useState(s.briefing.time);
+  const [days, setDays] = useState(s.briefing.days);
+  const [to, setTo] = useState<string[]>(s.briefing.email_to.length ? s.briefing.email_to : [""]);
+  const save = useSave("/api/settings/briefing");
+  return (
+    <Section title="Daily brief" foot={<SaveBtn m={save} onClick={() => save.mutate({ time, days, email_to: to.map((x) => x.trim()).filter(Boolean) })} />}>
+      <div className="form-grid">
+        <Field label="Time"><input className="input" type="time" value={time} onChange={(e) => setTime(e.target.value)} /></Field>
+      </div>
+      <div className="field">
+        <span>Send to</span>
+        {to.map((addr, i) => (
+          <div className="row" key={i} style={{ flexWrap: "nowrap" }}>
+            <input className="input grow" type={addr.trim().toLowerCase() === "me" ? "text" : "email"} value={addr} aria-label={`Recipient ${i + 1}`}
+              placeholder="name@company.com" onChange={(e) => setTo(to.map((x, j) => (j === i ? e.target.value : x)))} />
+            <button className="btn btn-ghost btn-icon btn-danger" aria-label="Remove recipient" onClick={() => setTo(to.length > 1 ? to.filter((_, j) => j !== i) : [""])}><Trash2 size={16} /></button>
+          </div>
+        ))}
+        <small>“me” sends to the main connected mailbox.</small>
+        <div><button className="btn btn-sm" onClick={() => setTo([...to, ""])}><Plus size={15} /> Add recipient</button></div>
+      </div>
+      <div className="field">
+        <span>Days</span>
+        <div className="day-picks">
+          {DAYS.map(([d, l]) => (
+            <button key={d} type="button" aria-pressed={days.includes(d)} onClick={() => setDays(days.includes(d) ? days.filter((x) => x !== d) : [...days, d])}>{l}</button>
+          ))}
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+function DecisionPick({ value, onChange, inherit }: { value: Decision | ""; onChange: (v: Decision | "") => void; inherit?: Decision }) {
+  const opts: { value: Decision | ""; label: ReactNode }[] = (["allow", "ask", "deny"] as Decision[]).map((d) => ({
+    value: d,
+    label: <><span className="dot" data-area={DECISION_WORDS[d].area} /> {DECISION_WORDS[d].label}</>,
+  }));
+  if (inherit) opts.unshift({ value: "", label: `Default (${DECISION_WORDS[inherit].label})` });
+  return <Segmented label="Rule" value={value} onChange={onChange} options={opts} />;
+}
+
+function Rules({ s }: { s: Settings }) {
+  const [defaults, setDefaults] = useState(s.policy.defaults);
+  const [tools, setTools] = useState<Record<string, Decision>>(() =>
+    Object.fromEntries(s.policy.tools.filter((t) => t.source === "tool").map((t) => [t.name, t.decision])),
+  );
+  const save = useSave("/api/settings/policy");
+  return (
+    <>
+      <Section title="By type of action">
+        {(["read", "write", "external"] as const).map((r) => (
+          <div className="rule-row" key={r}>
+            <div className="grow">
+              <strong>{RISK[r].label}</strong>
+              <div className="faint">{RISK[r].help}</div>
+            </div>
+            <DecisionPick value={defaults[r]} onChange={(v) => setDefaults({ ...defaults, [r]: v as Decision })} />
+          </div>
+        ))}
+      </Section>
+      <Section title="Specific actions" foot={<SaveBtn m={save} onClick={() => save.mutate({ defaults, tools })} />}>
+        {s.policy.tools.map((t) => (
+          <div className="rule-row" key={t.name}>
+            <div className="grow">
+              <strong>{tool(t.name).label}</strong>
+            </div>
+            <DecisionPick
+              value={tools[t.name] ?? ""}
+              inherit={defaults[t.risk]}
+              onChange={(v) => {
+                const next = { ...tools };
+                if (v) next[t.name] = v; else delete next[t.name];
+                setTools(next);
+              }}
+            />
+          </div>
+        ))}
+      </Section>
+    </>
+  );
+}
+
+function Email({ s }: { s: Settings }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const email = s.integrations.find((i) => i.name === "email");
+  const st = email?.status;
+  const mode = useSave("/api/settings/email-mode");
+  const job = useQuery({
+    queryKey: ["job", "gmail"],
+    queryFn: () => api.get<Job>("/api/jobs/gmail"),
+    refetchInterval: (q) => (q.state.data?.status === "running" ? 2000 : false),
+  });
+  useEffect(() => {
+    if (job.data?.status === "done") qc.invalidateQueries({ queryKey: ["settings"] });
+  }, [job.data?.status, qc]);
+  const connect = useMutation({
+    mutationFn: () => api.post<Job>("/api/settings/gmail/connect"),
+    onSuccess: (j) => qc.setQueryData(["job", "gmail"], j),
+    onError: (e: Error) => toast(e.message, "danger"),
+  });
+  const disconnect = useMutation({
+    mutationFn: (address: string) => api.post("/api/settings/gmail/disconnect", { address }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["settings"] }); toast("Gmail disconnected", "inbox"); },
+  });
+  const backend = st?.backend ?? email?.settings.backend ?? "outbox";
+  return (
+    <Section title="Email">
+      <div className="field">
+        <span>Mode</span>
+        <Segmented label="Email mode" value={backend} onChange={(v) => mode.mutate({ backend: v })} options={[
+          { value: "gmail", label: "Gmail" },
+          { value: "outbox", label: "Practice (nothing is sent)" },
+        ]} />
+      </div>
+      {st && backend !== "gmail" && <Notice hue="inbox" icon={AlertTriangle}>{st.message}</Notice>}
+      {st && backend === "gmail" && (
+        <div className="field">
+          <span>Mailboxes</span>
+          {st.state === "missing_file" && <Notice hue="danger" icon={AlertTriangle}>{st.message}</Notice>}
+          {(st.mailboxes ?? []).length > 0 && (
+            <ul className="mailboxes">
+              {(st.mailboxes ?? []).map((m, i) => (
+                <li key={m.address || i} data-area="inbox">
+                  <CheckCircle2 size={17} />
+                  <span className="grow">{m.address || "Connected mailbox"}{i === 0 && (st.mailboxes ?? []).length > 1 && <span className="faint"> · main</span>}</span>
+                  {!m.connected && <span className="faint">Needs sign-in</span>}
+                  <button className="btn btn-ghost btn-sm" onClick={() => confirm(`Disconnect ${m.address || "this mailbox"}?`) && disconnect.mutate(m.address)}>Disconnect</button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {st.state !== "missing_file" && (
+            <div className="row">
+              <GoogleButton onClick={() => connect.mutate()} disabled={job.data?.status === "running"}
+                label={(st.mailboxes ?? []).length ? "Add another Google account" : "Sign in with Google"} />
+              {job.data?.status === "running" && <span className="faint row" style={{ gap: 6 }}><Loader2 size={14} className="spin" /> Finish in your browser</span>}
+            </div>
+          )}
+        </div>
+      )}
+      {job.data?.status === "done" && job.data.result?.address && <p className="faint">Connected {job.data.result.address}.</p>}
+      {job.data?.status === "error" && <Notice hue="danger" icon={AlertTriangle}>{job.data.error}</Notice>}
+    </Section>
+  );
+}
+
+function Playbooks({ s }: { s: Settings }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [sel, setSel] = useState<string | null>(s.playbooks[0]?.name ?? null);
+  const current = s.playbooks.find((p) => p.name === sel);
+  const [name, setName] = useState(current?.name ?? "");
+  const [text, setText] = useState(current?.text ?? "");
+  const [preview, setPreview] = useState(false);
+  useEffect(() => { setName(current?.name ?? ""); setText(current?.text ?? ""); setPreview(false); }, [sel, current?.name, current?.text]);
+  const save = useMutation({
+    mutationFn: () => api.put(`/api/playbooks/${encodeURIComponent(name)}`, { text, rename_from: sel && sel !== name ? sel : undefined }),
+    onSuccess: (r: any) => { qc.invalidateQueries({ queryKey: ["settings"] }); setSel(r.name); toast("Playbook saved", "settings"); },
+    onError: (e: Error) => toast(e.message, "danger"),
+  });
+  const del = useMutation({
+    mutationFn: () => api.del(`/api/playbooks/${encodeURIComponent(sel!)}`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["settings"] }); setSel(null); toast("Playbook deleted", "settings"); },
+    onError: (e: Error) => toast(e.message, "danger"),
+  });
+  return (
+    <div className="split">
+      <nav className="panel sublist" aria-label="Playbooks" data-area="settings">
+        <ul>
+          {s.playbooks.map((p) => (
+            <li key={p.name}><button aria-current={sel === p.name} onClick={() => setSel(p.name)}>{humanize(p.name)}</button></li>
+          ))}
+        </ul>
+        <div style={{ padding: 10 }}><button className="btn btn-sm" style={{ width: "100%" }} onClick={() => { setSel(null); setName(""); setText(""); }}><Plus size={15} /> New playbook</button></div>
+      </nav>
+      <Section title={sel ? humanize(sel) : "New playbook"} foot={
+        <>
+          {sel && <button className="btn btn-ghost btn-danger" onClick={() => confirm("Delete this playbook?") && del.mutate()}><Trash2 size={15} /> Delete</button>}
+          <span className="grow" />
+          <SaveBtn m={save} onClick={() => save.mutate()} />
+        </>
+      }>
+        <Field label="Name"><input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. client-onboarding" /></Field>
+        <div className="field">
+          <div className="row" style={{ justifyContent: "space-between" }}>
+            <span>Instructions</span>
+            <Segmented label="Mode" value={preview ? "p" : "e"} onChange={(v) => setPreview(v === "p")} options={[{ value: "e", label: "Write" }, { value: "p", label: "Preview" }]} />
+          </div>
+          {preview ? <div className="panel panel-pad"><Markdown text={text || "_Empty_"} /></div> : (
+            <textarea className="textarea" rows={16} value={text} onChange={(e) => setText(e.target.value)} />
+          )}
+        </div>
+      </Section>
+    </div>
+  );
+}
+
+function ApiKey({ s }: { s: Settings }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [key, setKey] = useState("");
+  const save = useMutation({
+    mutationFn: (k: string) => api.put<{ key_set: boolean }>("/api/settings/api-key", { key: k }),
+    onSuccess: (r) => { setKey(""); qc.invalidateQueries({ queryKey: ["settings"] }); toast(r.key_set ? "Key saved" : "Key removed", "settings"); },
+    onError: (e: Error) => toast(e.message, "danger"),
+  });
+  const set = !!s.provider.key_set;
+  return (
+    <Section title="API key">
+      {set && <Notice hue="tasks" icon={CheckCircle2} title={s.desktop ? "Saved in your keychain" : "Set"} action={
+        <button className="btn btn-sm" onClick={() => confirm("Remove the API key?") && save.mutate("")}>Remove</button>
+      } />}
+      <form className="row" style={{ flexWrap: "nowrap" }} onSubmit={(e) => { e.preventDefault(); if (key.trim()) save.mutate(key.trim()); }}>
+        <input className="input grow" type="password" autoComplete="off" spellCheck={false} placeholder={set ? "Replace key" : "Paste your Anthropic API key"} value={key} onChange={(e) => setKey(e.target.value)} aria-label="API key" />
+        <button className="btn btn-primary" disabled={!key.trim() || save.isPending}>Save</button>
+      </form>
+    </Section>
+  );
+}
+
+function Model({ s }: { s: Settings }) {
+  const total = s.usage.reduce((a, d) => ({ input: a.input + d.input, output: a.output + d.output }), { input: 0, output: 0 });
+  return (
+    <div className="stack">
+      {s.provider.kind === "anthropic" && <ApiKey s={s} />}
+      <Section title="Usage (last 30 days)">
+        {s.usage.length === 0 ? <p className="muted">No usage recorded yet.</p> : (
+          <>
+            <p><strong>{(total.input / 1000).toFixed(0)}k</strong> tokens in · <strong>{(total.output / 1000).toFixed(0)}k</strong> tokens out</p>
+            <table className="table">
+              <thead><tr><th>Day</th><th>In</th><th>Out</th><th>Cached</th></tr></thead>
+              <tbody>{s.usage.map((d) => <tr key={d.date}><td>{d.date}</td><td>{d.input.toLocaleString()}</td><td>{d.output.toLocaleString()}</td><td>{d.cached.toLocaleString()}</td></tr>)}</tbody>
+            </table>
+          </>
+        )}
+      </Section>
+    </div>
+  );
+}
+
+export default function SettingsPage() {
+  const { tab = "company" } = useParams<{ tab: Tab }>();
+  const { data, isLoading, error } = useQuery({ queryKey: ["settings"], queryFn: () => api.get<Settings>("/api/settings") });
+  const Body = { company: Company, brief: Brief, rules: Rules, email: Email, playbooks: Playbooks, model: Model }[tab as Tab] ?? Company;
+  return (
+    <>
+      <PageHeader area="settings" />
+      <div className="settings">
+        <nav className="settings-tabs" aria-label="Settings sections" data-area="settings">
+          {TABS.map(([id, label]) => <NavLink key={id} to={`/settings/${id}`} className={tab === id ? "active" : undefined}>{label}</NavLink>)}
+        </nav>
+        <div className="grow">
+          {isLoading ? <div className="panel"><SkeletonList rows={4} /></div>
+            : error ? <Notice hue="danger" icon={AlertTriangle}>{(error as Error).message}</Notice>
+            : data && <Body key={tab + JSON.stringify(data).length} s={data} />}
+        </div>
+      </div>
+    </>
+  );
+}

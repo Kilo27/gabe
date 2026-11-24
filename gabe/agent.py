@@ -80,8 +80,15 @@ class Agent:
         decision = self.policy.decide(tool)
         if decision is Decision.DENY:
             return done("Blocked by company policy. Do not retry; tell the user.", True, "denied_by_policy")
-        if decision is Decision.ASK and not self.approver(tool, call.input):
-            return done("The user did not approve this action. Do not retry unless asked.", True, "declined_by_user")
+        if decision is Decision.ASK:
+            self.on_event("approval", {"agent": self.name, "tool": call.name})
+            verdict = self.approver(tool, call.input)
+            if not verdict:
+                msg = "The user did not approve this action. Do not retry unless asked."
+                note = getattr(verdict, "note", "")
+                if note:
+                    msg += f" Their note: {note}"
+                return done(msg, True, "declined_by_user")
 
         try:
             return done(tool.run(call.input))

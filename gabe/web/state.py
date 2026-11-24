@@ -1,0 +1,463 @@
+"""Server-side state for the web app: chat sessions, the approval queue, background
+jobs and config editing. Everything is kept in JSON files under `data/web/` so a
+single-process deployment needs nothing else.
+
+Approvals: a chat run executes on a worker thread. When the policy says `ask`, the
+web approver records a pending approval and blocks that thread until a person decides
+in the app (approve, edit then approve, or reject with a note). Approvals still waiting
+when the server stops are marked expired on the next start; Gabe was told no.
+"""
+
+from __future__ import annotations
+
+import shutil
+import threading
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Callable
+
+import yaml
+
+from gabe.agent import Agent
+from gabe.app import build_gabe
+from gabe.audit import AuditLog
+from gabe.config import Config, load_config
+from gabe.integrations._store import JsonStore
+from gabe.policy import Declined
+from gabe.tools.registry import Tool, validate_input
+
+
+def now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def new_id() -> str:
+    return uuid.uuid4().hex[:10]
+
+
+def friendly_error(e: BaseException) -> str:
+    """Turn an exception into something a non-technical person can act on."""
+    name = type(e).__name__
+    text = str(e)
+    if name == "AuthenticationError" or "api_key" in text.lower() or "auth" in name.lower():
+        return (
+            "Gabe couldn't sign in to its AI model. The API key is missing or wrong. "
+            "Whoever set Gabe up needs to check the key (ANTHROPIC_API_KEY)."
+        )
+    if name in ("APIConnectionError", "ConnectError", "ConnectTimeout"):
+        return "Gabe couldn't reach its AI model. Check the internet connection, then try again."
+    if name == "RateLimitError":
+        return "Gabe's AI model is busy right now (rate limit). Wait a minute and try again."
+    if "invalid_grant" in text or "Token has been expired" in text:
+        return "The Gmail connection has expired. Reconnect Gmail in Settings, then try again."
+    return f"Something went wrong: {text or name}"
+
+
+# ---------------------------------------------------------------------------
+# Approvals
+
+
+class ApprovalQueue:
+    def __init__(self, path: Path) -> None:
+        self.store = JsonStore(path, {"approvals": []})
+        self._events: dict[str, threading.Event] = {}
+        self._guard = threading.Lock()
+        # Anything still pending belongs to a run that died with the last server.
+        def expire(d):
+            for a in d["approvals"]:
+                if a["status"] == "pending":
+                    a["status"] = "expired"
+                    a["decided"] = now()
+        self.store.update(expire)
+
+    def all(self) -> list[dict[str, Any]]:
+        return sorted(self.store.load()["approvals"], key=lambda a: a["created"], reverse=True)
+
+    def get(self, approval_id: str) -> dict[str, Any] | None:
+        return next((a for a in self.store.load()["approvals"] if a["id"] == approval_id), None)
+
+    def pending_count(self) -> int:
+        return sum(1 for a in self.store.load()["approvals"] if a["status"] == "pending")
+
+    def create(self, **fields: Any) -> dict[str, Any]:
+        rec = {"id": new_id(), "status": "pending", "created": now(), "decided": None,
+               "note": "", "edited": False, **fields}
+        with self._guard:
+            self._events[rec["id"]] = threading.Event()
+        self.store.update(lambda d: d["approvals"].append(rec))
+        return rec
+
+    def wait(self, approval_id: str) -> dict[str, Any]:
+        ev = self._events[approval_id]
+        ev.wait()
+        with self._guard:
+            self._events.pop(approval_id, None)
+        return self.get(approval_id) or {"status": "rejected"}
+
+    def is_live(self, approval_id: str) -> bool:
+        with self._guard:
+            return approval_id in self._events
+
+    def decide(self, approval_id: str, approve: bool, args: dict | None, note: str, by: str) -> dict:
+        def upd(d):
+            for a in d["approvals"]:
+                if a["id"] == approval_id:
+                    if a["status"] != "pending":
+                        raise ValueError("This request has already been decided.")
+                    a["status"] = "approved" if approve else "rejected"
+                    a["decided"] = now()
+                    a["note"] = note
+                    a["decided_by"] = by
+                    if approve and args is not None and args != a["args"]:
+                        a["original_args"] = a["args"]
+                        a["args"] = args
+                        a["edited"] = True
+                    return a
+            raise KeyError(approval_id)
+
+        rec = self.store.update(upd)
+        with self._guard:
+            ev = self._events.get(approval_id)
+        if ev:
+            ev.set()
+        return rec
+
+
+# ---------------------------------------------------------------------------
+# Chat sessions
+
+
+@dataclass
+class _Live:
+    agent: Agent
+    message_id: str = ""
+    last_thought: str = ""
+    asking_agent: str = ""
+    running: bool = False
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
+
+class Sessions:
+    def __init__(self, root: Path, app: "WebState") -> None:
+        self.root = root
+        self.app = app
+        root.mkdir(parents=True, exist_ok=True)
+        self._live: dict[str, _Live] = {}
+        self._guard = threading.Lock()
+        # Mark runs that were cut off by a restart.
+        for p in root.glob("*.json"):
+            store = JsonStore(p, {})
+
+            def fix(s):
+                for m in s.get("messages", []):
+                    if m.get("status") in ("working", "waiting"):
+                        m["status"] = "error"
+                        m["text"] = m.get("text") or (
+                            "This reply was interrupted because the Gabe app restarted. "
+                            "Send your message again to continue."
+                        )
+                s["status"] = "idle"
+
+            store.update(fix)
+
+    def _store(self, sid: str) -> JsonStore:
+        return JsonStore(self.root / f"{sid}.json", {})
+
+    def list(self) -> list[dict[str, Any]]:
+        out = []
+        for p in self.root.glob("*.json"):
+            s = JsonStore(p, {}).load()
+            if not s:
+                continue
+            last = s["messages"][-1] if s.get("messages") else None
+            out.append({
+                "id": s["id"], "title": s["title"], "agent": s.get("agent"), "created": s["created"], "updated": s["updated"],
+                "status": s.get("status", "idle"), "count": len(s.get("messages", [])),
+                "preview": (last or {}).get("text", "")[:140],
+            })
+        return sorted(out, key=lambda s: s["updated"], reverse=True)
+
+    def get(self, sid: str) -> dict[str, Any] | None:
+        p = self.root / f"{sid}.json"
+        if not p.exists():
+            return None
+        s = self._store(sid).load()
+        live = self._live.get(sid)
+        s["memory_reset"] = bool(s.get("messages")) and live is None
+        return s
+
+    def create(self, title: str = "New conversation", agent: str | None = None) -> dict[str, Any]:
+        s = {"id": new_id(), "title": title, "created": now(), "updated": now(),
+             "status": "idle", "messages": [], "agent": agent}
+        self._store(s["id"]).save(s)
+        return s
+
+    def rename(self, sid: str, title: str) -> None:
+        self._store(sid).update(lambda s: s.update(title=title.strip() or s["title"]))
+
+    def delete(self, sid: str) -> None:
+        live = self._live.get(sid)
+        if live and live.running:
+            raise RuntimeError("Gabe is still working in this conversation.")
+        (self.root / f"{sid}.json").unlink(missing_ok=True)
+        with self._guard:
+            self._live.pop(sid, None)
+
+    def _patch_message(self, sid: str, mid: str, fn: Callable[[dict], None]) -> None:
+        def upd(s):
+            for m in s["messages"]:
+                if m["id"] == mid:
+                    fn(m)
+            s["updated"] = now()
+        self._store(sid).update(upd)
+
+    def _live_for(self, sid: str) -> _Live:
+        with self._guard:
+            if sid in self._live:
+                return self._live[sid]
+            cfg = self.app.config()
+            specialist = self._store(sid).load().get("agent")
+            holder: dict[str, _Live] = {}
+
+            def on_event(kind: str, data: dict[str, Any]) -> None:
+                live = holder["live"]
+                self.app.track(kind, data, sid)
+                if kind == "approval":
+                    live.asking_agent = data.get("agent", "")
+                elif kind == "step":
+                    self.app.record_usage(data.get("usage") or {})
+                elif kind == "thought":
+                    live.last_thought = data.get("text", "").strip()
+                    self._patch_message(sid, live.message_id, lambda m: m["activity"].append(
+                        {"kind": "thought", "agent": data.get("agent"), "text": live.last_thought, "ts": now()}))
+                elif kind == "tool":
+                    self._patch_message(sid, live.message_id, lambda m: m["activity"].append(
+                        {"kind": "tool", "agent": data.get("agent"), "tool": data.get("tool"),
+                         "input": data.get("input"), "outcome": data.get("outcome"), "ts": now()}))
+
+            def approver(tool: Tool, args: dict[str, Any]):
+                live = holder["live"]
+                session = self._store(sid).load()
+                rec = self.app.approvals.create(
+                    session_id=sid, message_id=live.message_id, session_title=session.get("title", ""),
+                    agent=live.asking_agent or (specialist or cfg.assistant_name),
+                    tool=tool.name, risk=tool.risk.value, integration=tool.integration,
+                    description=tool.description, args=dict(args), reason=live.last_thought,
+                )
+
+                def waiting(m):
+                    m["status"] = "waiting"
+                    m["activity"].append({"kind": "approval", "approval_id": rec["id"], "tool": tool.name, "ts": now()})
+                self._patch_message(sid, live.message_id, waiting)
+                decided = self.app.approvals.wait(rec["id"])
+                self._patch_message(sid, live.message_id, lambda m: m.update(status="working"))
+                if decided.get("status") == "approved":
+                    args.clear()
+                    args.update(decided["args"])
+                    return True
+                return Declined(decided.get("note", ""))
+
+            agent = build_gabe(cfg, approver=approver, on_event=on_event, specialist=specialist)
+            live = _Live(agent=agent)
+            holder["live"] = live
+            self._live[sid] = live
+            return live
+
+    def send(self, sid: str, text: str) -> dict[str, Any]:
+        text = text.strip()
+        if not text:
+            raise ValueError("Type a message first.")
+        self.app.check_not_paused(self._store(sid).load().get("agent"))
+        live = self._live_for(sid)
+        with live.lock:
+            if live.running:
+                raise RuntimeError("Gabe is still working on your last message.")
+            live.running = True
+        user_msg = {"id": new_id(), "role": "user", "text": text, "ts": now(), "status": "done", "activity": []}
+        reply = {"id": new_id(), "role": "assistant", "text": "", "ts": now(), "status": "working", "activity": []}
+
+        def add(s):
+            if not s["messages"] and s["title"] == "New conversation":
+                s["title"] = text[:60] + ("…" if len(text) > 60 else "")
+            s["messages"] += [user_msg, reply]
+            s["status"] = "running"
+            s["updated"] = now()
+        self._store(sid).update(add)
+        live.message_id = reply["id"]
+        live.last_thought = ""
+        root = live.agent.name
+        self.app.track("start", {"agent": root}, sid)
+
+        def run():
+            try:
+                answer = live.agent.send(text)
+                patch = {"text": answer, "status": "done"}
+            except Exception as e:  # shown in the chat, not raised
+                patch = {"text": friendly_error(e), "status": "error"}
+            self._patch_message(sid, reply["id"], lambda m: m.update(patch, ts=now()))
+            self._store(sid).update(lambda s: s.update(status="idle"))
+            live.running = False
+            self.app.track("end", {"agent": root}, sid)
+
+        threading.Thread(target=run, daemon=True, name=f"chat-{sid}").start()
+        return reply
+
+    def reset_idle(self) -> None:
+        """Drop every idle conversation's agent so the next message rebuilds it (e.g. new API key)."""
+        with self._guard:
+            for sid in [k for k, v in self._live.items() if not v.running]:
+                self._live.pop(sid)
+
+    def forget(self, sid: str) -> None:
+        """Start Gabe's working memory of this conversation afresh (history stays on screen)."""
+        with self._guard:
+            live = self._live.get(sid)
+            if live and live.running:
+                raise RuntimeError("Gabe is still working in this conversation.")
+            self._live.pop(sid, None)
+
+
+# ---------------------------------------------------------------------------
+# Config editing
+
+
+def _str_presenter(dumper, data):
+    if "\n" in data:
+        return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data)
+
+
+class _Dumper(yaml.SafeDumper):
+    pass
+
+
+_Dumper.add_representer(str, _str_presenter)
+
+
+class WebState:
+    def __init__(self, config_path: Path) -> None:
+        self.config_path = config_path.resolve()
+        self._cfg_lock = threading.Lock()
+        cfg = self.config()
+        self.web_dir = cfg.data_dir / "web"
+        self.web_dir.mkdir(parents=True, exist_ok=True)
+        self.approvals = ApprovalQueue(self.web_dir / "approvals.json")
+        self.sessions = Sessions(self.web_dir / "sessions", self)
+        self.usage = JsonStore(self.web_dir / "usage.json", {"days": {}})
+        self.jobs: dict[str, dict[str, Any]] = {}
+        self.jobs_lock = threading.Lock()
+        # Live view of who is doing what: agent log name -> {"working": n, "now": {...}, "session": id}
+        self.live: dict[str, dict[str, Any]] = {}
+        self.live_lock = threading.Lock()
+
+    def track(self, kind: str, data: dict[str, Any], sid: str | None = None) -> None:
+        """Keep a small live picture of each agent from the agent loop's events."""
+        name = data.get("specialist") if kind.startswith("delegate") else data.get("agent")
+        if not name:
+            return
+        with self.live_lock:
+            a = self.live.setdefault(name, {"working": 0, "now": None, "session": None, "from": None})
+            if kind in ("start", "delegate_start"):
+                a["working"] += 1
+                a["session"] = sid
+                a["from"] = data.get("agent") if kind == "delegate_start" else "you"
+                a["now"] = {"text": data.get("task", ""), "ts": now(), "kind": "task"} if kind == "delegate_start" else None
+            elif kind in ("end", "delegate_end"):
+                a["working"] = max(0, a["working"] - 1)
+                if not a["working"]:
+                    a["now"] = None
+                    a["from"] = None
+            elif kind == "tool":
+                a["now"] = {"tool": data.get("tool"), "input": data.get("input"), "outcome": data.get("outcome"), "ts": now(), "kind": "tool"}
+            elif kind == "thought":
+                a["now"] = {"text": data.get("text", ""), "ts": now(), "kind": "thought"}
+
+    def live_view(self) -> dict[str, dict[str, Any]]:
+        with self.live_lock:
+            return json_copy(self.live)
+
+    def check_not_paused(self, specialist: str | None) -> None:
+        cfg = self.config()
+        if specialist is None:
+            if cfg.paused:
+                raise RuntimeError(f"{cfg.assistant_name} is paused. Resume it on the Agents page first.")
+            return
+        spec = next((d for d in cfg.delegates if d.name == specialist), None)
+        if spec is None:
+            raise RuntimeError("That agent doesn't exist any more.")
+        if spec.paused:
+            raise RuntimeError(f"The {specialist} agent is paused. Resume it first.")
+
+    def config(self) -> Config:
+        return load_config(self.config_path)
+
+    def audit(self) -> AuditLog:
+        return AuditLog(self.config().data_dir / "audit.jsonl")
+
+    def raw_config(self) -> dict[str, Any]:
+        return yaml.safe_load(self.config_path.read_text()) or {}
+
+    def edit_config(self, fn: Callable[[dict[str, Any]], None]) -> None:
+        """Apply fn to the raw YAML and write it back. The first edit keeps a backup."""
+        with self._cfg_lock:
+            raw = self.raw_config()
+            backup = self.config_path.with_name(self.config_path.name + ".bak")
+            if not backup.exists():
+                shutil.copy2(self.config_path, backup)
+            fn(raw)
+            text = yaml.dump(raw, Dumper=_Dumper, sort_keys=False, allow_unicode=True, width=100)
+            header = "# Gabe company configuration. Edited by the Gabe web app; the original is in gabe.yaml.bak.\n"
+            self.config_path.write_text(header + text)
+            load_config(self.config_path)  # fail loudly here rather than on the next run
+
+    def record_usage(self, usage: dict[str, Any]) -> None:
+        if not usage:
+            return
+        day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        inp = usage.get("input_tokens") or usage.get("prompt_tokens") or 0
+        out = usage.get("output_tokens") or usage.get("completion_tokens") or 0
+        cached = usage.get("cache_read_input_tokens") or 0
+
+        def upd(d):
+            t = d["days"].setdefault(day, {"input": 0, "output": 0, "cached": 0, "steps": 0})
+            t["input"] += inp
+            t["output"] += out
+            t["cached"] += cached
+            t["steps"] += 1
+        self.usage.update(upd)
+
+    # Background jobs (briefing, inbox sorting, Gmail sign-in): one of each at a time.
+    def start_job(self, name: str, fn: Callable[[], Any]) -> dict[str, Any]:
+        with self.jobs_lock:
+            job = self.jobs.get(name)
+            if job and job["status"] == "running":
+                return job
+            job = {"name": name, "status": "running", "started": now(), "finished": None,
+                   "error": None, "result": None}
+            self.jobs[name] = job
+
+        def run():
+            try:
+                job["result"] = fn()
+                job["status"] = "done"
+            except Exception as e:
+                job["error"] = friendly_error(e)
+                job["status"] = "error"
+            job["finished"] = now()
+
+        threading.Thread(target=run, daemon=True, name=f"job-{name}").start()
+        return job
+
+    def job(self, name: str) -> dict[str, Any] | None:
+        return self.jobs.get(name)
+
+
+def json_copy(x):
+    import json
+    return json.loads(json.dumps(x, default=str))
+
+
+def check_args(tool: Tool, args: dict[str, Any]) -> str | None:
+    return validate_input(tool.input_schema, args)

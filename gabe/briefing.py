@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 from gabe.agent import Agent, EventHandler, _ignore
 from gabe.audit import AuditLog
-from gabe.config import Config
+from gabe.config import Config, load_config
 from gabe.integrations import load_integrations
 from gabe.policy import Decision, Policy, deny_all
 from gabe.prompts import chief_of_staff_prompt
@@ -38,6 +38,7 @@ class BriefingSettings:
     days: list[str] = field(default_factory=lambda: DAYS[:5])
     output_dir: Path | None = None
     email_to: list[str] = field(default_factory=list)  # "me" = the connected mailbox
+    paused: bool = False  # a person paused the briefing writer
 
     @classmethod
     def from_config(cls, cfg: Config) -> "BriefingSettings":
@@ -48,6 +49,7 @@ class BriefingSettings:
             days=[d.lower()[:3] for d in raw.get("days", DAYS[:5])],
             output_dir=(cfg.root / out).resolve() if out else cfg.data_dir / "briefings",
             email_to=list(raw.get("email_to") or []),
+            paused=bool(raw.get("paused", False)),
         )
 
 
@@ -137,6 +139,9 @@ def run_scheduler(
         # Sleep in short chunks so laptop sleep / clock changes don't overshoot much.
         while (remaining := (target - datetime.now(tz)).total_seconds()) > 0:
             sleep(min(remaining, 60))
+        cfg = load_config(cfg.path) if cfg.path else cfg  # pick up edits made while waiting
+        if BriefingSettings.from_config(cfg).paused:
+            continue
         try:
             text, path = run_briefing(cfg)
             on_brief(text, path)

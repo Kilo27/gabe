@@ -23,12 +23,16 @@ class DelegateSpec:
     description: str
     instructions: str
     tools: list[str] | None = None  # None = every tool Gabe has (except delegation)
+    paused: bool = False  # a person paused it; delegation to it is refused
+    policy: dict[str, str] = field(default_factory=dict)  # tool -> allow | ask | deny, over company policy
 
 
 @dataclass
 class Config:
     root: Path
+    path: Path | None = None  # the YAML file this came from
     assistant_name: str = "Gabe"
+    paused: bool = False  # Gabe itself is paused by a person
     company: dict[str, Any] = field(default_factory=dict)
     provider: dict[str, Any] = field(default_factory=lambda: {"kind": "anthropic"})
     data_dir: Path = Path("data")
@@ -68,13 +72,17 @@ def load_config(path: str | os.PathLike[str] | None = None) -> Config:
             description=spec.get("description", ""),
             instructions=spec.get("instructions", ""),
             tools=spec.get("tools"),
+            paused=bool(spec.get("paused", False)),
+            policy=dict(spec.get("policy") or {}),
         )
         for name, spec in (raw.get("delegates") or {}).items()
     ]
 
     return Config(
         root=root,
+        path=path.resolve(),
         assistant_name=(raw.get("assistant") or {}).get("name", "Gabe"),
+        paused=bool((raw.get("assistant") or {}).get("paused", False)),
         company=raw.get("company") or {},
         provider=raw.get("provider") or {"kind": "anthropic"},
         data_dir=rel(raw.get("data_dir", "../data")),

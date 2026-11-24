@@ -19,8 +19,19 @@ class Decision(str, enum.Enum):
     DENY = "deny"
 
 
-# Called when a decision is ASK: return True to approve the call.
-Approver = Callable[[Tool, dict[str, Any]], bool]
+@dataclass
+class Declined:
+    """A refusal that carries a note back to the model. Falsy, like False."""
+
+    note: str = ""
+
+    def __bool__(self) -> bool:
+        return False
+
+
+# Called when a decision is ASK: return True to approve the call, or False / Declined(note)
+# to refuse it. An approver may edit `args` in place before approving (edit-then-approve).
+Approver = Callable[[Tool, dict[str, Any]], "bool | Declined"]
 
 
 def deny_all(tool: Tool, args: dict[str, Any]) -> bool:

@@ -11,6 +11,7 @@ when a company switches mail provider. send_email stays Risk.EXTERNAL.
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -43,92 +44,150 @@ def setup(registry: ToolRegistry, ctx) -> None:
         raise ValueError(f"email backend '{backend}' is not supported (use 'gmail' or 'outbox')")
 
 
-def gmail_paths(ctx):
+def _slug(address: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", address.lower()).strip("_")
+
+
+def gmail_accounts(settings: dict) -> list[str]:
+    """Connected mailbox addresses, in order. Empty means one mailbox whose address isn't recorded."""
+    return [str(a).strip() for a in settings.get("accounts") or [] if str(a).strip()]
+
+
+def gmail_token_path(ctx, account: str | None = None):
+    """The first mailbox keeps gmail_token.json; others get one token file each."""
+    accounts = gmail_accounts(ctx.settings)
+    if not account or not accounts or account == accounts[0]:
+        return ctx.path("gmail_token.json")
+    return ctx.path(f"gmail_token_{_slug(account)}.json")
+
+
+def default_google_client():
+    """The OAuth client shipped with the app, so people just "Sign in with Google"."""
+    import sys
+    from pathlib import Path
+
+    here = Path(__file__).resolve().parents[2]
+    for base in (Path(getattr(sys, "_MEIPASS", here)) / "gabe" / "defaults", here / "packaging"):
+        p = base / "google_oauth_client.json"
+        if p.exists():
+            return p
+    return None
+
+
+def gmail_paths(ctx, account: str | None = None):
+    """A company's own OAuth client file (settings.credentials_file) wins; else the bundled one."""
     creds = ctx.settings.get("credentials_file", "gmail_client_secret.json")
     creds_path = (ctx.config.root / creds).resolve()
-    token_path = ctx.path("gmail_token.json")
-    return creds_path, token_path
+    if not creds_path.exists():
+        creds_path = default_google_client() or creds_path
+    return creds_path, gmail_token_path(ctx, account)
 
 
-def gmail_client_from_config(cfg):
-    """A GmailClient for the configured email integration (for code-driven sends)."""
-    from gabe.integrations import IntegrationContext
+def _client(ctx, account: str | None = None):
     from gabe.integrations.gmail_backend import GmailClient, build_service, load_credentials
+
+    creds_path, token_path = gmail_paths(ctx, account)
+    return GmailClient(lambda: build_service(load_credentials(creds_path, token_path, interactive=False)))
+
+
+def gmail_client_from_config(cfg, account: str | None = None):
+    """A GmailClient for one configured mailbox (the first by default), for code-driven sends."""
+    from gabe.integrations import IntegrationContext
 
     spec = next((i for i in cfg.integrations if i.name == "email"), None)
     if not spec or spec.settings.get("backend") != "gmail":
         raise RuntimeError("email integration is not configured with `backend: gmail`")
-    creds_path, token_path = gmail_paths(IntegrationContext("email", spec.settings, cfg.data_dir, cfg))
-    return GmailClient(lambda: build_service(load_credentials(creds_path, token_path, interactive=False)))
+    return _client(IntegrationContext("email", spec.settings, cfg.data_dir, cfg), account)
 
 
 def _setup_gmail(registry: ToolRegistry, ctx) -> None:
-    from gabe.integrations.gmail_backend import GmailClient, build_service, load_credentials
+    accounts = gmail_accounts(ctx.settings)
+    clients = {a: _client(ctx, a) for a in accounts} if accounts else {"": _client(ctx)}
+    multi = len(clients) > 1
+    first = next(iter(clients))
 
-    creds_path, token_path = gmail_paths(ctx)
-    client = GmailClient(
-        lambda: build_service(load_credentials(creds_path, token_path, interactive=False))
-    )
+    def pick(account: str | None):
+        if not account:
+            return clients[first]
+        if account not in clients:
+            raise ValueError(f"No connected mailbox '{account}'. Use one of: {', '.join(clients)}")
+        return clients[account]
+
+    # With several mailboxes every action takes an optional `account`; with one, the schema stays as before.
+    acct = {"account": {"type": "string", "enum": list(clients),
+                        "description": f"Which mailbox. Default: {first}."}} if multi else {}
+
+    def sch(props, required):
+        return schema({**props, **acct}, required=required)
+
+    send_props = dict(_SEND_SCHEMA["properties"])
+    where = f" Mailboxes: {', '.join(clients)}." if multi else ""
 
     @registry.add(
         "search_email",
         "Search the mailbox with Gmail search syntax, e.g. 'is:unread newer_than:1d', "
         "'from:alex subject:budget', 'is:important -category:promotions'. Returns headers "
-        "and a snippet per message. " + UNTRUSTED_NOTE,
-        schema(
+        "and a snippet per message." + where + " " + UNTRUSTED_NOTE,
+        sch(
             {
                 "query": {"type": "string"},
                 "max_results": {"type": "integer", "description": "Default 10, max 50."},
             },
-            required=["query"],
+            ["query"],
         ),
         Risk.READ,
         "email",
     )
-    def search_email(query: str, max_results: int = 10):
-        results = client.search(query, max(1, min(max_results, 50)))
+    def search_email(query: str, max_results: int = 10, account: str | None = None):
+        n = max(1, min(max_results, 50))
+        if multi and not account:
+            results = [{**m, "account": a} for a, c in clients.items() for m in c.search(query, n)]
+        else:
+            results = pick(account).search(query, n)
+            if multi:
+                results = [{**m, "account": account} for m in results]
         return results or "No messages match."
 
     @registry.add(
         "read_email",
-        "Read one email in full by id (from search_email). " + UNTRUSTED_NOTE,
-        schema({"id": {"type": "string"}}),
+        "Read one email in full by id (from search_email)." + (" Pass the same account it came from." if multi else "") + " " + UNTRUSTED_NOTE,
+        sch({"id": {"type": "string"}}, ["id"]),
         Risk.READ,
         "email",
     )
-    def read_email(id: str):
-        return client.read(id)
+    def read_email(id: str, account: str | None = None):
+        return pick(account).read(id)
 
     @registry.add(
         "draft_email",
         "Save an email as a draft in the mailbox for a person to review and send. "
         "Prefer this over send_email unless asked to send.",
-        _SEND_SCHEMA,
+        sch(send_props, ["to", "subject", "body"]),
         Risk.WRITE,
         "email",
     )
-    def draft_email(to, subject, body, cc=None, reply_to_id=None) -> str:
-        return f"Draft {client.draft(to, subject, body, cc, reply_to_id)} saved."
+    def draft_email(to, subject, body, cc=None, reply_to_id=None, account=None) -> str:
+        return f"Draft {pick(account).draft(to, subject, body, cc, reply_to_id)} saved."
 
     @registry.add(
         "send_email",
         "Send an email from the company mailbox. May require human approval.",
-        _SEND_SCHEMA,
+        sch(send_props, ["to", "subject", "body"]),
         Risk.EXTERNAL,
         "email",
     )
-    def send_email(to, subject, body, cc=None, reply_to_id=None) -> str:
-        return f"Sent message {client.send(to, subject, body, cc, reply_to_id)}."
+    def send_email(to, subject, body, cc=None, reply_to_id=None, account=None) -> str:
+        return f"Sent message {pick(account).send(to, subject, body, cc, reply_to_id)}."
 
     @registry.add(
         "mark_email_read",
         "Mark an email as read once it has been handled.",
-        schema({"id": {"type": "string"}}),
+        sch({"id": {"type": "string"}}, ["id"]),
         Risk.WRITE,
         "email",
     )
-    def mark_email_read(id: str) -> str:
-        client.mark_read(id)
+    def mark_email_read(id: str, account: str | None = None) -> str:
+        pick(account).mark_read(id)
         return f"Marked {id} as read."
 
 

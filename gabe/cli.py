@@ -52,6 +52,9 @@ def load_dotenv(path: str = ".env") -> None:
 
 
 def _chat(cfg, args) -> int:
+    if cfg.paused:
+        print(f"{cfg.assistant_name} is paused. Resume it in the web app, or remove `paused` under assistant: in config.", file=sys.stderr)
+        return 1
     gabe = build_gabe(
         cfg,
         approver=deny_all if args.unattended else terminal_approver,
@@ -95,8 +98,11 @@ def _show_brief(text: str, path) -> None:
 def _brief(cfg, args) -> int:
     from gabe.briefing import run_briefing
 
-    from gabe.briefing import email_briefing
+    from gabe.briefing import BriefingSettings, email_briefing
 
+    if BriefingSettings.from_config(cfg).paused:
+        print("The briefing writer is paused. Resume it in the web app, or remove `paused` from briefing: in config.", file=sys.stderr)
+        return 1
     text, path = run_briefing(cfg, on_event=print_event)
     _show_brief(text, path)
     if not args.no_email:
@@ -152,6 +158,25 @@ def _auth(cfg, args) -> int:
     return 0
 
 
+def _web(cfg, args) -> int:
+    try:
+        import uvicorn
+    except ImportError:
+        print("The web app needs extra packages: pip install -e '.[web]'", file=sys.stderr)
+        return 1
+    from gabe.web.server import create_app
+
+    url = f"http://{'localhost' if args.host in ('127.0.0.1', '0.0.0.0') else args.host}:{args.port}"
+    print(f"{BOLD}Gabe web app{RESET} running at {url}  (Ctrl-C to stop)")
+    if not args.no_open:
+        import threading
+        import webbrowser
+
+        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+    uvicorn.run(create_app(args.config_path), host=args.host, port=args.port, log_level="warning")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     load_dotenv()
     ap = argparse.ArgumentParser(prog="gabe", description="Gabe, your AI chief of staff.")
@@ -167,10 +192,20 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("schedule", help="Run forever, producing the daily briefing at the configured time")
     auth = sub.add_parser("auth", help="Authorise an integration")
     auth.add_argument("service", choices=["gmail"])
+    sub.add_parser("app", help="Open the Gabe desktop app from source")
+    web = sub.add_parser("web", help="Serve the app UI to a browser (for development)")
+    web.add_argument("--host", default="127.0.0.1", help="Address to listen on (default: this computer only)")
+    web.add_argument("--port", type=int, default=8765)
+    web.add_argument("--no-open", action="store_true", help="Don't open a browser window")
 
     args = ap.parse_args(argv)
+    if args.command == "app":  # the desktop app keeps its own config in the app-data folder
+        from gabe.desktop import main as desktop_main
+
+        return desktop_main()
     cfg = load_config(args.config)
-    handler = {"brief": _brief, "schedule": _schedule, "auth": _auth}.get(args.command, _chat)
+    args.config_path = args.config or os.environ.get("GABE_CONFIG", "config/gabe.yaml")
+    handler = {"brief": _brief, "schedule": _schedule, "auth": _auth, "web": _web}.get(args.command, _chat)
     return handler(cfg, args)
 
 

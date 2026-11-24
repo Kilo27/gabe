@@ -1,7 +1,8 @@
 # Gabe UI: plan
 
-Status: **plan only**, not built yet. Today Gabe runs from the terminal
-(`gabe`, `gabe brief`, `gabe schedule`).
+Status: **built** (`gabe web`), on the JSON-file storage. Not done yet: Postgres, sign-in
+and roles, persisting Gabe's working memory of a chat across restarts (an approval still
+waiting when the server stops expires; Gabe is told no).
 
 ## Who uses it
 
