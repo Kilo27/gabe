@@ -51,8 +51,10 @@ gabe app                        # run it from source instead
   The run waits for your answer. The first time, macOS asks to allow Gabe's notifications.
 - After installing a new build, macOS may ask once to let Gabe read its key from the
   Keychain ("Always Allow"). The window opens regardless; Gabe can't reach the AI until then.
-- The build is ad-hoc signed, so other Macs show a Gatekeeper warning. For distribution set
-  `SIGN_ID` to a Developer ID certificate and notarize the .dmg.
+- Run `packaging/macos/make_signing_cert.sh` once: it creates a local "Gabe Local Signing"
+  certificate that the build then uses, so every build has the same signature and macOS keeps
+  Gabe's notification and Keychain permissions. Other Macs still need a Developer ID
+  (`SIGN_ID`) and a notarized .dmg.
 
 Home is **Agents**: a live map of who hands work to whom, each agent's actions today on a
 timeline, and controls per agent (give it a job, pause/resume, set what it may do, approve
