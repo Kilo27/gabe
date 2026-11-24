@@ -32,6 +32,7 @@ function useInvalidate() {
 
 type Pt = { x: number; y: number };
 
+/** Org chart, left to right: You → Gabe → Gabe's reports → their reports … */
 function AgentMap({ agents, onOpen }: { agents: Hued[]; onOpen: (a: Hued) => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const [w, setW] = useState(900);
@@ -43,42 +44,51 @@ function AgentMap({ agents, onOpen }: { agents: Hued[]; onOpen: (a: Hued) => voi
     return () => ro.disconnect();
   }, []);
 
+  const byId = new Map(agents.map((a) => [a.id, a]));
+  const kids = (id: string) => agents.filter((a) => a.reports_to === id);
   const chief = agents.find((a) => a.kind === "chief")!;
-  const team = agents.filter((a) => a.kind !== "chief");
-  const vertical = w < 640;
-  const ROW = 92;
 
-  let H: number, you: Pt, boss: Pt, pts: Pt[];
-  if (!vertical) {
-    H = Math.max(260, team.length * ROW + 40);
-    you = { x: Math.min(90, w * 0.09), y: H / 2 };
-    boss = { x: w * 0.38, y: H / 2 };
-    pts = team.map((_, i) => ({ x: w * 0.78, y: H / 2 + (i - (team.length - 1) / 2) * ROW }));
-  } else {
-    const cols = 2;
-    const rows = Math.ceil(team.length / cols);
-    H = 236 + rows * 112;
-    you = { x: w / 2, y: 34 };
-    boss = { x: w / 2, y: 128 };
-    pts = team.map((_, i) => ({ x: (w / cols) * ((i % cols) + 0.5), y: 250 + Math.floor(i / cols) * 112 }));
-  }
+  // Rows: one per leaf, in tree order; a manager sits level with the middle of its reports.
+  const ROW = 78;
+  const depth = new Map<string, number>();
+  const row = new Map<string, number>();
+  let leaves = 0;
+  const place = (a: Hued, d: number): number => {
+    depth.set(a.id, d);
+    const ks = kids(a.id);
+    const r = ks.length ? ks.map((k) => place(k, d + 1)).reduce((x, y) => x + y, 0) / ks.length : leaves++;
+    row.set(a.id, r);
+    return r;
+  };
+  place(chief, 1);
+  const maxDepth = Math.max(...depth.values());
+  const H = Math.max(200, leaves * ROW + 40);
+  const youW = 64;
+  const colW = (w - youW - 24) / maxDepth;
+  const nodeW = Math.max(132, Math.min(236, colW - 28));
+  const pos = (id: string): Pt => ({ x: youW + 12 + (depth.get(id)! - 1) * colW + nodeW / 2, y: 20 + row.get(id)! * ROW + ROW / 2 });
+  const you: Pt = { x: 30, y: pos(chief.id).y };
 
-  const curve = (a: Pt, b: Pt) =>
-    vertical
-      ? `M${a.x},${a.y} C${a.x},${(a.y + b.y) / 2} ${b.x},${(a.y + b.y) / 2} ${b.x},${b.y}`
-      : `M${a.x},${a.y} C${(a.x + b.x) / 2},${a.y} ${(a.x + b.x) / 2},${b.y} ${b.x},${b.y}`;
+  const curve = (a: Pt, b: Pt, fromW: number, toW: number) => {
+    const x1 = a.x + fromW / 2, x2 = b.x - toW / 2, mx = (x1 + x2) / 2;
+    return `M${x1},${a.y} C${mx},${a.y} ${mx},${b.y} ${x2},${b.y}`;
+  };
 
   const edges: { d: string; hue: Area; active: boolean; dashed?: boolean; key: string }[] = [
-    { key: "you-chief", d: curve(you, boss), hue: chief.hue, active: chief.status === "working" && chief.handed_by === "you" },
+    { key: "you-chief", d: curve(you, pos(chief.id), 40, nodeW), hue: chief.hue, active: chief.status === "working" && chief.handed_by === "you" },
   ];
-  team.forEach((a, i) => {
-    const direct = a.handed_by === "you";
-    edges.push({ key: `chief-${a.id}`, d: curve(boss, pts[i]), hue: a.hue, active: a.status === "working" && !direct });
-    if (direct && a.status === "working") edges.push({ key: `you-${a.id}`, d: curve(you, pts[i]), hue: a.hue, active: true, dashed: true });
-  });
+  for (const a of agents) {
+    if (a === chief) continue;
+    const boss = byId.get(a.reports_to);
+    if (!boss) continue;
+    const direct = a.handed_by === "you" && a.status === "working";
+    edges.push({ key: `${boss.id}-${a.id}`, d: curve(pos(boss.id), pos(a.id), nodeW, nodeW), hue: a.hue,
+      active: a.status === "working" && a.handed_by === boss.id });
+    if (direct) edges.push({ key: `you-${a.id}`, d: curve(you, pos(a.id), 40, nodeW), hue: a.hue, active: true, dashed: true });
+  }
 
   return (
-    <div className="map" ref={ref} style={{ height: H }} data-vertical={vertical}>
+    <div className="map" ref={ref} style={{ height: H }}>
       <svg width={w} height={H} aria-hidden>
         {edges.map((e) => (
           <path key={e.key} d={e.d} data-area={e.hue} className={`edge${e.active ? " edge-on" : ""}${e.dashed ? " edge-direct" : ""}`} />
@@ -88,10 +98,11 @@ function AgentMap({ agents, onOpen }: { agents: Hued[]; onOpen: (a: Hued) => voi
         <span className="map-you-tile"><User size={18} /></span>
         <span>You</span>
       </div>
-      {[chief, ...team].map((a) => {
-        const p = a === chief ? boss : pts[team.indexOf(a)];
+      {agents.map((a) => {
+        if (!depth.has(a.id)) return null;
+        const p = pos(a.id);
         return (
-          <button key={a.id} className="node" data-area={a.hue} data-status={a.status} style={{ left: p.x, top: p.y, width: vertical ? w / 2 - 14 : undefined }} onClick={() => onOpen(a)} aria-label={`${agentLabel(a)}: ${nowText(a)}`}>
+          <button key={a.id} className="node" data-area={a.hue} data-status={a.status} style={{ left: p.x, top: p.y, width: nodeW }} onClick={() => onOpen(a)} aria-label={`${agentLabel(a)}: ${nowText(a)}`}>
             <span className="node-tile">{a.kind === "briefing" ? <FileText size={17} /> : a.kind === "chief" ? <Sparkles size={17} /> : <Bot size={17} />}</span>
             <span className="node-text">
               <strong>{agentLabel(a)}</strong>
@@ -165,7 +176,7 @@ function Timelines({ agents, timeline, isToday }: { agents: Hued[]; timeline: Re
 
 /* ---- Agent card --------------------------------------------------------------- */
 
-function Card({ a, onOpen }: { a: Hued; onOpen: () => void }) {
+function Card({ a, boss, onOpen }: { a: Hued; boss?: Hued; onOpen: () => void }) {
   const toast = useToast();
   const inval = useInvalidate();
   const [job, setJob] = useState("");
@@ -191,6 +202,7 @@ function Card({ a, onOpen }: { a: Hued; onOpen: () => void }) {
         <div className="grow">
           <h3>{agentLabel(a)}</h3>
           <p className="faint">{a.role}</p>
+          {a.kind === "member" && boss && <p className="agent-boss"><span className="dot" data-area={boss.hue} /> Reports to {agentLabel(boss)}</p>}
         </div>
         <span className="agent-state">{a.status === "working" ? "Working" : a.status === "waiting" ? "Waiting" : a.status === "paused" ? "Paused" : "Idle"}</span>
       </header>
@@ -242,26 +254,59 @@ function Card({ a, onOpen }: { a: Hued; onOpen: () => void }) {
   );
 }
 
-/* ---- Agent sheet: approvals, rules, role, conversations ------------------------ */
+/* ---- Agent sheet: approvals, manager, freedom, actions, jobs ------------------- */
 
-function AgentSheet({ a, onClose }: { a: Hued; onClose: () => void }) {
+function FreedomPick({ value, onChange, levels }: { value: string; onChange: (v: string) => void; levels: AgentsData["freedom_levels"] }) {
+  return (
+    <div className="freedom" role="radiogroup" aria-label="Freedom">
+      {levels.map((f) => (
+        <label key={f.key} className="freedom-opt" data-on={value === f.key}>
+          <input type="radio" name="freedom" value={f.key} checked={value === f.key} onChange={() => onChange(f.key)} />
+          <strong>{f.label}</strong>
+          <span className="faint">{f.explanation}</span>
+        </label>
+      ))}
+    </div>
+  );
+}
+
+function ManagerPick({ value, onChange, agents, self }: { value: string; onChange: (v: string) => void; agents: Hued[]; self?: string }) {
+  // Can't report to yourself or to anyone under you.
+  const under = new Set<string>();
+  if (self) {
+    const walk = (id: string) => agents.filter((x) => x.reports_to === id).forEach((x) => { under.add(x.id); walk(x.id); });
+    walk(self);
+  }
+  return (
+    <select className="select" value={value} onChange={(e) => onChange(e.target.value)}>
+      {agents.filter((x) => x.kind !== "briefing" && x.id !== self && !under.has(x.id)).map((x) => (
+        <option key={x.id} value={x.id}>{agentLabel(x)}</option>
+      ))}
+    </select>
+  );
+}
+
+function AgentSheet({ a, agents, levels, onClose }: { a: Hued; agents: Hued[]; levels: AgentsData["freedom_levels"]; onClose: () => void }) {
   const toast = useToast();
   const inval = useInvalidate();
   const approvals = useQuery({ queryKey: ["approvals"], queryFn: () => api.get<Approval[]>("/api/approvals"), refetchInterval: 3000 });
   const sessions = useQuery({ queryKey: ["sessions"], queryFn: () => api.get<SessionSummary[]>("/api/sessions") });
   const mine = (approvals.data ?? []).filter((x) => x.status === "pending" && x.agent === a.log_name);
   const convos = (sessions.data ?? []).filter((s) => (a.kind === "chief" ? !s.agent : s.agent === a.id)).slice(0, 5);
+  const member = a.kind === "member";
   const [rules, setRules] = useState<Record<string, Decision>>(a.rules);
+  const [name, setName] = useState(a.name);
   const [role, setRole] = useState(a.role);
   const [instructions, setInstructions] = useState(a.instructions);
-  const [tools, setTools] = useState<string[]>(a.tools);
-  const editable = a.kind === "specialist";
-  const settings = useQuery({ queryKey: ["settings"], queryFn: () => api.get<{ all_tools: string[] }>("/api/settings"), enabled: editable });
+  const [tools, setTools] = useState<string[]>(a.tools.filter((t) => t !== "delegate"));
+  const [manager, setManager] = useState(a.reports_to);
+  const [freedom, setFreedom] = useState(a.freedom ?? "standard");
+  const settings = useQuery({ queryKey: ["settings"], queryFn: () => api.get<{ all_tools: string[] }>("/api/settings"), enabled: member });
 
   const save = useMutation({
     mutationFn: async () => {
-      if (a.kind !== "briefing") await api.put(`/api/agents/${a.id}/rules`, { rules });
-      if (editable) await api.put(`/api/agents/${a.id}`, { description: role, instructions, tools });
+      if (a.kind === "chief") await api.put("/api/agents/chief/rules", { rules });
+      if (member) await api.put(`/api/agents/${a.id}`, { name, description: role, instructions, tools, reports_to: manager, freedom });
     },
     onSuccess: () => { inval(); toast("Saved", a.hue); onClose(); },
     onError: (e: Error) => toast(e.message, "danger"),
@@ -278,7 +323,7 @@ function AgentSheet({ a, onClose }: { a: Hued; onClose: () => void }) {
     <Sheet title={agentLabel(a)} area={a.hue} onClose={onClose} footer={
       a.kind === "briefing" ? undefined : (
         <>
-          {editable && <button className="btn btn-ghost btn-danger" onClick={() => confirm(`Remove ${agentLabel(a)}?`) && remove.mutate()}><Trash2 size={15} /> Remove</button>}
+          {member && <button className="btn btn-ghost btn-danger" onClick={() => confirm(`Remove ${agentLabel(a)}? Anyone reporting to it moves up.`) && remove.mutate()}><Trash2 size={15} /> Remove</button>}
           <span className="grow" />
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
           <button className="btn btn-primary" onClick={() => save.mutate()} disabled={save.isPending}>Save</button>
@@ -292,38 +337,45 @@ function AgentSheet({ a, onClose }: { a: Hued; onClose: () => void }) {
           </div>
         )}
 
-        {editable ? (
+        {member ? (
           <>
-            <Field label="Role"><input className="input" value={role} onChange={(e) => setRole(e.target.value)} /></Field>
+            <div className="form-grid">
+              <Field label="Name"><input className="input" value={name} onChange={(e) => setName(e.target.value)} /></Field>
+              <Field label="Reports to"><ManagerPick value={manager} onChange={setManager} agents={agents} self={a.id} /></Field>
+            </div>
+            <Field label="Job"><input className="input" value={role} onChange={(e) => setRole(e.target.value)} /></Field>
             <Field label="Instructions"><textarea className="textarea" rows={4} value={instructions} onChange={(e) => setInstructions(e.target.value)} /></Field>
+            <div className="field"><span>Freedom</span><FreedomPick value={freedom} onChange={setFreedom} levels={levels} /></div>
+            <div className="field">
+              <span>What it can do</span>
+              <div className="day-picks">
+                {(settings.data?.all_tools ?? tools).map((t) => {
+                  const on = tools.includes(t);
+                  return <button key={t} type="button" aria-pressed={on} onClick={() => setTools(on ? tools.filter((x) => x !== t) : [...tools, t])}>{tool(t).label}</button>;
+                })}
+              </div>
+            </div>
           </>
         ) : (
-          <p className="muted">{a.role}</p>
+          <>
+            <p className="muted">{a.role}</p>
+            <div className="field">
+              <span>{a.kind === "chief" ? "What it does itself" : "What it may do"}</span>
+              <div className="perm-list">
+                {a.tools.map((t) => (
+                  <div className="perm" key={t}>
+                    <span className="grow">{tool(t).label}</span>
+                    {a.kind === "briefing" ? <span className="faint">Read only</span> : (
+                      <Segmented<Decision> label={tool(t).label} value={decision(t)} onChange={(v) => setRules({ ...rules, [t]: v })} options={(["allow", "ask", "deny"] as Decision[]).map((d) => ({
+                        value: d, label: <><span className="dot" data-area={DECISION_WORDS[d].area} /> {DECISION_WORDS[d].label}</>,
+                      }))} />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
         )}
-
-        <div className="field">
-          <span>What it may do</span>
-          <div className="perm-list">
-            {(editable ? settings.data?.all_tools ?? a.tools : a.tools).map((t) => {
-              const on = tools.includes(t);
-              return (
-                <div className="perm" key={t} data-off={!on}>
-                  {editable && (
-                    <input type="checkbox" checked={on} aria-label={`${agentLabel(a)} can ${tool(t).ask}`} onChange={() => setTools(on ? tools.filter((x) => x !== t) : [...tools, t])} />
-                  )}
-                  <span className="grow">{tool(t).label}</span>
-                  {a.kind === "briefing" ? (
-                    <span className="faint">Read only</span>
-                  ) : on ? (
-                    <Segmented<Decision> label={tool(t).label} value={decision(t)} onChange={(v) => setRules({ ...rules, [t]: v })} options={(["allow", "ask", "deny"] as Decision[]).map((d) => ({
-                      value: d, label: <><span className="dot" data-area={DECISION_WORDS[d].area} /> {DECISION_WORDS[d].label}</>,
-                    }))} />
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        </div>
 
         {a.kind !== "briefing" && (
           <div className="field">
@@ -344,7 +396,7 @@ function AgentSheet({ a, onClose }: { a: Hued; onClose: () => void }) {
 
 /* ---- Request a new agent ------------------------------------------------------ */
 
-function RequestSheet({ request, onClose }: { request: AgentsData["request"]; onClose: () => void }) {
+function RequestSheet({ request, agents, levels, onClose }: { request: AgentsData["request"]; agents: Hued[]; levels: AgentsData["freedom_levels"]; onClose: () => void }) {
   const toast = useToast();
   const inval = useInvalidate();
   const [role, setRole] = useState("");
@@ -388,11 +440,15 @@ function RequestSheet({ request, onClose }: { request: AgentsData["request"]; on
         </form>
       ) : (
         <div className="stack">
-          <Field label="Name"><input className="input" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></Field>
-          <Field label="Role"><input className="input" value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} /></Field>
+          <div className="form-grid">
+            <Field label="Name"><input className="input" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></Field>
+            <Field label="Reports to"><ManagerPick value={draft.reports_to} onChange={(v) => setDraft({ ...draft, reports_to: v })} agents={agents} /></Field>
+          </div>
+          <Field label="Job"><input className="input" value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} /></Field>
           <Field label="Instructions"><textarea className="textarea" rows={5} value={draft.instructions} onChange={(e) => setDraft({ ...draft, instructions: e.target.value })} /></Field>
+          <div className="field"><span>Freedom</span><FreedomPick value={draft.freedom} onChange={(v) => setDraft({ ...draft, freedom: v })} levels={levels} /></div>
           <div className="field">
-            <span>What it may do</span>
+            <span>What it can do</span>
             <div className="day-picks">
               {(settings.data?.all_tools ?? draft.tools).map((t) => {
                 const on = draft.tools.includes(t);
@@ -436,7 +492,7 @@ export default function Agents() {
           </section>
 
           <div className="agent-grid">
-            {agents.map((a) => <Card key={a.id} a={a} onOpen={() => setOpenId(a.id)} />)}
+            {agents.map((a) => <Card key={a.id} a={a} boss={agents.find((b) => b.id === a.reports_to)} onOpen={() => setOpenId(a.id)} />)}
           </div>
 
           <section className="panel" aria-labelledby="today-lanes">
@@ -451,8 +507,8 @@ export default function Agents() {
         </div>
       )}
 
-      {open && <AgentSheet key={open.id} a={open} onClose={() => setOpenId(null)} />}
-      {requesting && <RequestSheet request={data?.request ?? null} onClose={() => setRequesting(false)} />}
+      {open && <AgentSheet key={open.id} a={open} agents={agents} levels={data?.freedom_levels ?? []} onClose={() => setOpenId(null)} />}
+      {requesting && <RequestSheet request={data?.request ?? null} agents={agents} levels={data?.freedom_levels ?? []} onClose={() => setRequesting(false)} />}
     </>
   );
 }

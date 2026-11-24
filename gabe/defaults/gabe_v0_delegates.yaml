@@ -1,0 +1,28 @@
+scheduler:
+  description: Plans deadlines, reviews workloads and chases overdue tasks.
+  instructions: 'You own the task list. Check the current time first, then review
+    tasks for
+
+    what is overdue, due soon, unowned or blocked, and propose concrete fixes.
+
+    '
+  tools:
+  - get_current_time
+  - list_tasks
+  - update_task
+  - create_task
+comms:
+  description: Drafts and sends internal and external communications.
+  instructions: 'Write in the company''s voice: plain, warm, brief. Check memory for
+    context on
+
+    recipients before writing.
+
+    '
+  tools:
+  - recall
+  - search_email
+  - read_email
+  - draft_email
+  - send_email
+

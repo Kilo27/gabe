@@ -9,6 +9,7 @@ from gabe.audit import AuditLog
 from gabe.policy import Approver, Decision, Policy, deny_all
 from gabe.providers.base import Conversation, Provider, StepResult, ToolCall, ToolResult
 from gabe.tools.registry import ToolRegistry, validate_input
+from gabe.usage import UsageLog
 
 EventHandler = Callable[[str, dict[str, Any]], None]
 
@@ -27,7 +28,12 @@ class Agent:
     approver: Approver = deny_all
     audit: AuditLog = field(default_factory=lambda: AuditLog(None))
     on_event: EventHandler = _ignore
+    usage: UsageLog = field(default_factory=lambda: UsageLog(None))
+    user: str = "unknown"  # who the work is for, for usage reporting
+    task: str = "chat"  # what kind of work (chat, brief, ...), for usage reporting
     max_steps: int = 40
+    # Names from the top of the hierarchy down to this agent, e.g. ("Gabe", "Operations lead").
+    path: tuple[str, ...] = ()
     _conv: Conversation | None = field(default=None, init=False, repr=False)
 
     @property
@@ -35,6 +41,13 @@ class Agent:
         if self._conv is None:
             self._conv = self.provider.start(self.system, self.registry.tools())
         return self._conv
+
+    def __post_init__(self) -> None:
+        if not self.path:
+            self.path = (self.name,)
+
+    def emit(self, kind: str, data: dict[str, Any]) -> None:
+        self.on_event(kind, {"agent": self.name, "path": list(self.path), **data})
 
     def reset(self) -> None:
         self._conv = None
@@ -45,9 +58,10 @@ class Agent:
         conv.add_user(text)
         for _ in range(self.max_steps):
             result = conv.step()
-            self.on_event("step", {"agent": self.name, "stop": result.stop, "usage": result.usage})
+            self.usage.record(user=self.user, task=self.task, agent=self.name, usage=result.usage)
+            self.emit("step", {"stop": result.stop, "usage": result.usage})
             if result.text and result.tool_calls:
-                self.on_event("thought", {"agent": self.name, "text": result.text})
+                self.emit("thought", {"text": result.text})
 
             if result.stop == "pause":
                 continue  # server-side tool loop paused; resend to resume
@@ -64,8 +78,11 @@ class Agent:
 
     def _run_tool(self, call: ToolCall) -> ToolResult:
         def done(content: str, is_error: bool = False, outcome: str = "ok") -> ToolResult:
-            self.audit.record(agent=self.name, tool=call.name, input=call.input, outcome=outcome, error=is_error)
-            self.on_event("tool", {"agent": self.name, "tool": call.name, "input": call.input, "outcome": outcome})
+            self.audit.record(
+                agent=self.name, chain=" › ".join(self.path), tool=call.name, input=call.input,
+                outcome=outcome, error=is_error,
+            )
+            self.emit("tool", {"tool": call.name, "input": call.input, "outcome": outcome})
             return ToolResult(call.id, content, is_error)
 
         tool = self.registry.get(call.name)
@@ -81,7 +98,7 @@ class Agent:
         if decision is Decision.DENY:
             return done("Blocked by company policy. Do not retry; tell the user.", True, "denied_by_policy")
         if decision is Decision.ASK:
-            self.on_event("approval", {"agent": self.name, "tool": call.name})
+            self.emit("approval_needed", {"tool": call.name, "input": call.input})
             verdict = self.approver(tool, call.input)
             if not verdict:
                 msg = "The user did not approve this action. Do not retry unless asked."

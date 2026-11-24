@@ -64,7 +64,7 @@ repo's `config/gabe.yaml`. Settings edits that file in place and keeps the origi
 | Playbooks | `config/playbooks/*.md` | How *this* company does things (SOPs Gabe follows) |
 | Integrations | `integrations:` | Which systems Gabe can touch; custom ones load by module path |
 | Policy | `policy:` | What runs unattended, what needs a human, what's blocked |
-| Delegates | `delegates:` | Specialist sub-agents with their own instructions and tool subsets |
+| Team | `team_file:` (`config/team.yaml`) | A hierarchy of assistants under Gabe, each with a job, skills and freedom level. Edited on the Agents screen |
 | Model | `provider:` | Anthropic API now; local OpenAI-compatible server (GLM) later |
 
 ### Writing an integration
@@ -129,9 +129,58 @@ at `briefing.time` on `briefing.days`, using the Mac's local timezone. A run mis
 while the Mac was asleep fires when it wakes. Logs go to `data/logs/`. Re-run the
 script after changing the schedule, or run `scripts/install_launchd.sh uninstall` to remove it.
 
+## Gabe's team
+
+Gabe can hand work to a team of AI assistants arranged like an org chart. Gabe is at
+the top; each member reports to Gabe or to another member, and can hand work to its own
+direct reports (up to 4 levels deep). The example team in `config/team.yaml`:
+
+```
+Gabe
+├── Operations lead ── Scheduler
+├── Communications ─── Inbox triage
+└── Notes keeper
+```
+
+With a team, Gabe is a dispatcher: it does very little itself and hands requests to the
+member whose job fits. It keeps only `assistant.own_tools` (default: checking the time and
+looking up notes) so it can brief people well, plus any action that no active team member
+can do. With no team, Gabe does everything itself. The daily brief run is always hands-on.
+
+The **Agents** screen in the app is the org chart: change anyone's name, job, instructions,
+manager, skills and freedom level, pause or remove them, give them a job directly, or ask
+Gabe to propose a new member. Changes save to `config/team.yaml`.
+
+Controls, and how they combine:
+
+| Control | Effect |
+|---|---|
+| Working / Paused | A paused member, and everyone under them, gets no work. |
+| Skills | The tools a member may use. Skills from a connection that isn't set up are skipped and flagged on the page. |
+| Freedom level | `look_only` (can't change or send anything), `ask_first` (asks before any change), `standard` (asks before contacting anyone outside), `trusted` (company rules only). It can only make a member **more** careful than `policy:`, never less. |
+| Reports to | Only a member's manager can hand it work. Loops and chains deeper than 4 are refused. |
+
+Older configs with `delegates:` still work: every delegate reports straight to Gabe.
+The first edit on the Agents screen moves them into `team.yaml`.
+
 ## Planned
 
 - Web UI: [docs/UI_PLAN.md](docs/UI_PLAN.md)
 - Slack integration: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#roadmap)
 
 Every tool call is appended to `data/audit.jsonl`.
+
+## Usage and cost
+
+Every model call is appended to `data/usage.jsonl` with the user, the kind of task
+(`chat`, `brief`), the agent or delegate, the model that answered, and its input,
+cached-input and output tokens. The user is `--user`, else `$GABE_USER`, else your login.
+
+```bash
+gabe usage                          # by user, task and model, all time
+gabe usage --since 2026-11-01 --by user
+gabe usage --by model,agent
+```
+
+Estimated cost uses the `pricing:` table in `config/gabe.yaml` ($ per million tokens).
+Models missing from it are counted but not priced, and the report says so.

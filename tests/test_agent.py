@@ -22,7 +22,73 @@ def test_system_prompt_includes_company_playbooks_and_roster(config_file):
     gabe.send("hello")
     system, tools = p.systems[0]
     assert "TestCo" in system and "Triage inbox daily." in system and "scheduler" in system
-    assert tools == sorted(tools) and "delegate" in tools and "send_email" in tools
+    assert tools == sorted(tools)
+    assert "dispatcher" in system
+
+
+def test_gabe_only_keeps_lookup_tools_and_delegates_the_rest(config_file):
+    cfg = load_config(config_file)
+    cfg.delegates[0].tools = None  # the team can do everything
+    p = ScriptedProvider([done("hi")])
+    build_gabe(cfg, provider=p).send("hello")
+    assert p.systems[0][1] == ["delegate", "get_current_time", "recall"]
+
+
+def test_gabe_keeps_actions_nobody_on_the_team_can_do(config_file):
+    p = ScriptedProvider([done("hi")])
+    build_gabe(load_config(config_file), provider=p).send("hello")
+    tools = p.systems[0][1]
+    # The test team's scheduler only has list_tasks and create_task.
+    assert "create_task" not in tools and "list_tasks" not in tools
+    assert "send_email" in tools and "remember" in tools and "delegate" in tools
+
+
+def test_paused_member_hands_its_actions_back_to_gabe(config_file):
+    cfg = load_config(config_file)
+    cfg.delegates[0].tools = None
+    team = cfg.team()
+    team.members[0].active = False
+    p = ScriptedProvider([done("hi")])
+    build_gabe(cfg, provider=p, team=team).send("hello")
+    system, tools = p.systems[0]
+    assert "send_email" in tools and "delegate" not in tools and "dispatcher" not in system
+
+
+def test_own_tools_is_configurable(config_file):
+    cfg = load_config(config_file)
+    cfg.delegates[0].tools = None
+    cfg.own_tools = ["list_tasks", "not_loaded"]
+    p = ScriptedProvider([done("hi")])
+    build_gabe(cfg, provider=p).send("hello")
+    assert p.systems[0][1] == ["delegate", "list_tasks"]
+
+
+def test_without_delegates_gabe_keeps_every_tool(config_file):
+    cfg = load_config(config_file)
+    cfg.delegates = []
+    p = ScriptedProvider([done("hi")])
+    build_gabe(cfg, provider=p).send("hello")
+    system, tools = p.systems[0]
+    assert "send_email" in tools and "delegate" not in tools and "dispatcher" not in system
+
+
+def test_specialist_without_tool_list_gets_everything_but_delegation(config_file):
+    cfg = load_config(config_file)
+    cfg.delegates[0].tools = None
+    p = ScriptedProvider([
+        tool_step(("delegate", {"specialist": "scheduler", "task": "x"})),
+        done("done"),
+        done("ok"),
+    ])
+    build_gabe(cfg, provider=p).send("go")
+    sub_tools = p.systems[1][1]
+    assert "send_email" in sub_tools and "delegate" not in sub_tools
+
+
+def hands_on(config_file):
+    cfg = load_config(config_file)
+    cfg.delegates = []
+    return cfg
 
 
 def test_tool_loop_creates_and_lists_tasks(config_file):
@@ -31,7 +97,7 @@ def test_tool_loop_creates_and_lists_tasks(config_file):
         tool_step(("list_tasks", {"owner": "sam"})),
         done("Done."),
     ])
-    gabe = build_gabe(load_config(config_file), provider=p)
+    gabe = build_gabe(hands_on(config_file), provider=p)
     assert gabe.send("track it") == "Done."
     listed = results(p)[1][0]
     assert not listed.is_error and "Ship v1" in listed.content
@@ -49,7 +115,7 @@ def test_policy_deny_ask_and_invalid_input(config_file):
         done("ok"),
     ])
     gabe = build_gabe(
-        load_config(config_file),
+        hands_on(config_file),
         provider=p,
         approver=lambda tool, args: asked.append(tool.name) or False,
     )
@@ -67,7 +133,7 @@ def test_approved_email_goes_to_outbox(config_file):
         tool_step(("send_email", {"to": ["a@b.c"], "subject": "Hi", "body": "Body"})),
         done("sent"),
     ])
-    cfg = load_config(config_file)
+    cfg = hands_on(config_file)
     gabe = build_gabe(cfg, provider=p, approver=lambda t, a: True)
     gabe.send("email them")
     assert not results(p)[0][0].is_error

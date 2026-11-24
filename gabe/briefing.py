@@ -21,6 +21,7 @@ from gabe.policy import Decision, Policy, deny_all
 from gabe.prompts import chief_of_staff_prompt
 from gabe.providers import Provider, make_provider
 from gabe.tools.registry import Risk, ToolRegistry
+from gabe.usage import UsageLog, resolve_user
 
 DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
@@ -72,6 +73,9 @@ def build_briefer(cfg: Config, provider: Provider | None = None, on_event: Event
         approver=deny_all,
         audit=AuditLog(cfg.data_dir / "audit.jsonl"),
         on_event=on_event,
+        usage=UsageLog(cfg.data_dir / "usage.jsonl"),
+        user=resolve_user(),
+        task="brief",
     )
 
 

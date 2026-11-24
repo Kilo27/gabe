@@ -55,40 +55,23 @@ def test_one_mailbox_keeps_old_schema(config_file, monkeypatch):
     assert "account" not in reg.get("search_email").input_schema["properties"]
 
 
-def test_paused_specialist_is_not_run(config_file):
-    _edit(config_file, lambda raw: raw["delegates"]["scheduler"].__setitem__("paused", True))
-    provider = ScriptedProvider([
-        StepResult("", [ToolCall("1", "delegate", {"specialist": "scheduler", "task": "x"})], "tool_use"),
-        StepResult("ok", [], "done"),
-    ])
-    build_gabe(load_config(config_file), provider=provider).send("go")
-    results = [x for k, x in provider.log if k == "tool_results"][0]
-    assert "paused" in results[0].content
-    assert len(provider.systems) == 1  # no specialist conversation was started
-
-
-def test_specialist_rules_override_company_policy(config_file):
-    _edit(config_file, lambda raw: raw["delegates"]["scheduler"].__setitem__("policy", {"create_task": "deny"}))
-    sub = build_gabe(load_config(config_file), provider=ScriptedProvider([]), specialist="scheduler")
-    assert sub.policy.decide(sub.registry.get("create_task")).value == "deny"
-    assert "delegate" not in [t.name for t in sub.registry.tools()]
-
-
-def test_agents_api_pause_rules_and_request(config_file, monkeypatch):
+def test_agents_api_pause_freedom_and_request(config_file, monkeypatch):
     def fake_briefer(cfg, **kw):
         return build_gabe(cfg, provider=ScriptedProvider([StepResult(
-            '{"name": "invoice_chaser", "description": "Chases invoices.", "instructions": "Be polite.", "tools": ["list_tasks", "nope"]}',
+            '{"name": "Invoice chaser", "description": "Chases invoices.", "instructions": "Be polite.", '
+            '"tools": ["list_tasks", "nope"], "reports_to": "scheduler"}',
             [], "done")]))
     monkeypatch.setattr(server, "build_briefer", fake_briefer)
     c = TestClient(server.create_app(config_file))
     ids = [a["id"] for a in c.get("/api/agents").json()["agents"]]
-    assert ids == ["chief", "briefing", "scheduler"]
+    assert ids == ["chief", "briefing", "scheduler"]  # legacy delegates become the team
 
     c.post("/api/agents/scheduler/pause", json={"paused": True})
+    assert (config_file.parent / "team.yaml").exists()  # first edit moves the team into its own file
     assert c.post("/api/agents/scheduler/jobs", json={"text": "x"}).status_code == 409
     c.post("/api/agents/scheduler/pause", json={"paused": False})
 
-    c.put("/api/agents/scheduler/rules", json={"rules": {"create_task": "ask"}})
+    c.put("/api/agents/scheduler", json={"freedom": "ask_first"})
     sched = next(a for a in c.get("/api/agents").json()["agents"] if a["id"] == "scheduler")
     assert sched["decisions"]["create_task"] == "ask" and not sched["paused"]
 
@@ -96,9 +79,10 @@ def test_agents_api_pause_rules_and_request(config_file, monkeypatch):
     end = time.time() + 5
     while (req := c.get("/api/agents").json()["request"])["status"] == "running" and time.time() < end:
         time.sleep(0.05)
-    assert req["result"]["tools"] == ["list_tasks"]  # unknown actions dropped
-    assert c.post("/api/agents", json=req["result"]).status_code == 200
-    assert "invoice_chaser" in [a["id"] for a in c.get("/api/agents").json()["agents"]]
+    assert req["result"]["tools"] == ["list_tasks"] and req["result"]["reports_to"] == "scheduler"
+    assert c.post("/api/agents", json=req["result"]).json()["id"] == "invoice_chaser"
+    chaser = next(a for a in c.get("/api/agents").json()["agents"] if a["id"] == "invoice_chaser")
+    assert chaser["reports_to"] == "scheduler"
 
 
 def test_brief_recipients_list(config_file, monkeypatch):

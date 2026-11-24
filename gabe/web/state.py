@@ -218,13 +218,13 @@ class Sessions:
             if sid in self._live:
                 return self._live[sid]
             cfg = self.app.config()
-            specialist = self._store(sid).load().get("agent")
+            member = self._store(sid).load().get("agent")  # a team member's id, or None for Gabe
             holder: dict[str, _Live] = {}
 
             def on_event(kind: str, data: dict[str, Any]) -> None:
                 live = holder["live"]
                 self.app.track(kind, data, sid)
-                if kind == "approval":
+                if kind == "approval_needed":
                     live.asking_agent = data.get("agent", "")
                 elif kind == "step":
                     self.app.record_usage(data.get("usage") or {})
@@ -242,7 +242,7 @@ class Sessions:
                 session = self._store(sid).load()
                 rec = self.app.approvals.create(
                     session_id=sid, message_id=live.message_id, session_title=session.get("title", ""),
-                    agent=live.asking_agent or (specialist or cfg.assistant_name),
+                    agent=live.asking_agent or cfg.assistant_name,
                     tool=tool.name, risk=tool.risk.value, integration=tool.integration,
                     description=tool.description, args=dict(args), reason=live.last_thought,
                 )
@@ -259,7 +259,7 @@ class Sessions:
                     return True
                 return Declined(decided.get("note", ""))
 
-            agent = build_gabe(cfg, approver=approver, on_event=on_event, specialist=specialist)
+            agent = build_gabe(cfg, approver=approver, on_event=on_event, member=member)
             live = _Live(agent=agent)
             holder["live"] = live
             self._live[sid] = live
@@ -353,18 +353,19 @@ class WebState:
         self.live_lock = threading.Lock()
 
     def track(self, kind: str, data: dict[str, Any], sid: str | None = None) -> None:
-        """Keep a small live picture of each agent from the agent loop's events."""
-        name = data.get("specialist") if kind.startswith("delegate") else data.get("agent")
+        """Keep a small live picture of each agent from the agent loop's events.
+        Agents are keyed by the name they log under (Gabe, a team member's name)."""
+        name = data.get("to_name") if kind == "delegate" else data.get("agent")
         if not name:
             return
         with self.live_lock:
             a = self.live.setdefault(name, {"working": 0, "now": None, "session": None, "from": None})
-            if kind in ("start", "delegate_start"):
+            if kind in ("start", "delegate"):
                 a["working"] += 1
                 a["session"] = sid
-                a["from"] = data.get("agent") if kind == "delegate_start" else "you"
-                a["now"] = {"text": data.get("task", ""), "ts": now(), "kind": "task"} if kind == "delegate_start" else None
-            elif kind in ("end", "delegate_end"):
+                a["from"] = data.get("agent") if kind == "delegate" else "you"
+                a["now"] = {"text": data.get("task", ""), "ts": now(), "kind": "task"} if kind == "delegate" else None
+            elif kind in ("end", "report"):
                 a["working"] = max(0, a["working"] - 1)
                 if not a["working"]:
                     a["now"] = None
@@ -378,17 +379,20 @@ class WebState:
         with self.live_lock:
             return json_copy(self.live)
 
-    def check_not_paused(self, specialist: str | None) -> None:
+    def check_not_paused(self, member: str | None) -> None:
         cfg = self.config()
-        if specialist is None:
+        if member is None:
             if cfg.paused:
                 raise RuntimeError(f"{cfg.assistant_name} is paused. Resume it on the Agents page first.")
             return
-        spec = next((d for d in cfg.delegates if d.name == specialist), None)
-        if spec is None:
+        team = cfg.team()
+        m = team.get(member)
+        if m is None:
             raise RuntimeError("That agent doesn't exist any more.")
-        if spec.paused:
-            raise RuntimeError(f"The {specialist} agent is paused. Resume it first.")
+        if not team.is_working(member):
+            who = m.name if not m.active else next(x.name for x in team.chain(member) if not x.active)
+            raise RuntimeError(f"{who} is paused. Resume it first.")
+
 
     def config(self) -> Config:
         return load_config(self.config_path)

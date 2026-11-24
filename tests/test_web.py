@@ -94,3 +94,39 @@ def test_desktop_first_run_copies_starter_config(tmp_path, monkeypatch):
     cfg.write_text(cfg.read_text().replace("Your company", "Kept"))
     ensure_config(tmp_path)  # never overwrites
     assert "Kept" in cfg.read_text()
+
+
+def test_first_build_config_moves_to_the_starter_team(tmp_path):
+    import shutil
+
+    import yaml
+
+    from gabe.config import load_config
+    from gabe.desktop import bundled, ensure_config
+
+    cfg_dir = tmp_path / "config"
+    cfg_dir.mkdir()
+    old = yaml.safe_load(bundled("gabe", "defaults", "gabe.yaml").read_text())
+    old.pop("team_file")
+    old["delegates"] = yaml.safe_load(bundled("gabe", "defaults", "gabe_v0_delegates.yaml").read_text())
+    old["company"]["name"] = "Kept Co"
+    (cfg_dir / "gabe.yaml").write_text(yaml.safe_dump(old))
+    shutil.copytree(bundled("config", "playbooks"), cfg_dir / "playbooks")
+    cfg = load_config(ensure_config(tmp_path))
+    assert cfg.company["name"] == "Kept Co" and cfg.team_file == (cfg_dir / "team.yaml").resolve()
+    assert cfg.team().get("notes") is not None and not cfg.delegates
+
+
+def test_edited_specialists_are_left_alone(tmp_path):
+    import yaml
+
+    from gabe.desktop import bundled, ensure_config
+
+    cfg_dir = tmp_path / "config"
+    cfg_dir.mkdir()
+    old = yaml.safe_load(bundled("gabe", "defaults", "gabe.yaml").read_text())
+    old.pop("team_file")
+    old["delegates"] = {"mine": {"description": "x", "instructions": "y", "tools": ["recall"]}}
+    (cfg_dir / "gabe.yaml").write_text(yaml.safe_dump(old))
+    ensure_config(tmp_path)
+    assert "mine" in yaml.safe_load((cfg_dir / "gabe.yaml").read_text())["delegates"]

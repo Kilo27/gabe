@@ -1,52 +1,45 @@
-"""Wire config, provider, integrations, policy and delegates into a ready Gabe."""
+"""Wire config, provider, integrations, policy and the team into a ready Gabe."""
 
 from __future__ import annotations
 
 from gabe.agent import Agent, EventHandler, _ignore
 from gabe.audit import AuditLog
-from gabe.config import Config, DelegateSpec
+from gabe.config import Config
 from gabe.integrations import load_integrations
-from gabe.policy import Approver, Decision, Policy, deny_all
+from gabe.policy import Approver, Policy, deny_all
 from gabe.prompts import chief_of_staff_prompt, delegate_prompt
 from gabe.providers import Provider, make_provider
+from gabe.team import CHIEF_ID, Member, Team
 from gabe.tools.registry import Risk, Tool, ToolRegistry, schema
-
-PAUSED = "The {name} specialist is paused by a person. Don't retry; tell the user it's paused."
-
-
-def specialist_policy(base: Policy, spec: DelegateSpec) -> Policy:
-    """Company policy with the specialist's own per-action rules on top."""
-    return Policy(
-        defaults=dict(base.defaults),
-        tool_overrides={**base.tool_overrides, **{k: Decision(v) for k, v in spec.policy.items()}},
-        integration_overrides=dict(base.integration_overrides),
-    )
+from gabe.usage import UsageLog, resolve_user
 
 
-def build_specialist(
-    cfg: Config,
-    spec: DelegateSpec,
-    registry: ToolRegistry,
-    provider: Provider,
-    policy: Policy,
-    approver: Approver,
-    audit: AuditLog,
-    on_event: EventHandler = _ignore,
-) -> Agent:
-    return Agent(
-        name=spec.name,
-        provider=provider,
-        system=delegate_prompt(cfg, spec),
-        # Skip actions this setup doesn't have (e.g. Gmail-only actions in practice mode).
-        registry=registry.subset(
-            [t.name for t in registry.tools() if t.name != "delegate"] if spec.tools is None
-            else [t for t in spec.tools if registry.get(t)]
-        ),
-        policy=specialist_policy(policy, spec),
-        approver=approver,
-        audit=audit,
-        on_event=on_event,
-    )
+def base_registry(cfg: Config) -> ToolRegistry:
+    """Every tool the company's integrations provide (no delegation)."""
+    registry = ToolRegistry()
+    load_integrations(cfg, registry)
+    return registry
+
+
+def team_coverage(team: Team, available: set[str]) -> set[str]:
+    """Every tool some working team member (at any level under Gabe) can use."""
+    covered: set[str] = set()
+    todo = [CHIEF_ID]
+    while todo:
+        for m in team.reports(todo.pop()):
+            covered |= available if m.skills is None else set(m.skills) & available
+            todo.append(m.id)
+    return covered
+
+
+def chief_tools(cfg: Config, team: Team, available: set[str]) -> list[str] | None:
+    """With a team, Gabe is a dispatcher: it keeps its own lookup tools (assistant.own_tools)
+    and hands the rest to the team. Anything no working member can do (say their manager is
+    paused) stays with Gabe, so nothing becomes impossible. Without a team, Gabe has it all."""
+    if not team.reports(CHIEF_ID):
+        return None
+    covered = team_coverage(team, available)
+    return sorted(n for n in available if n in cfg.own_tools or n not in covered)
 
 
 def build_gabe(
@@ -54,60 +47,100 @@ def build_gabe(
     approver: Approver = deny_all,
     on_event: EventHandler = _ignore,
     provider: Provider | None = None,
-    specialist: str | None = None,
+    team: Team | None = None,
+    user: str | None = None,
+    task: str = "chat",
+    member: str | None = None,
 ) -> Agent:
-    """Gabe, the chief of staff. With `specialist`, that specialist on its own instead."""
+    """Gabe, the chief of staff. With `member`, that team member on its own (a job given to
+    it directly), still able to hand work to its own reports."""
     provider = provider or make_provider(cfg.provider)
     policy = Policy.from_config(cfg.policy)
     audit = AuditLog(cfg.data_dir / "audit.jsonl")
+    tools = base_registry(cfg)
+    team = team if team is not None else cfg.team()
+    available = {t.name for t in tools.tools()}
+    usage = UsageLog(cfg.data_dir / "usage.jsonl")
+    user = resolve_user(user)
+    job = task  # the delegate tool's own `task` argument is the team member's instructions
 
-    registry = ToolRegistry()
-    load_integrations(cfg, registry)
-    specs = {d.name: d for d in cfg.delegates}
+    def skills_of(member: Member) -> list[str] | None:
+        # Skills whose integration isn't set up right now (e.g. email in outbox mode) are skipped,
+        # not fatal; they're simply left out.
+        return None if member.skills is None else [s for s in member.skills if s in available]
 
-    if specialist is not None:
-        return build_specialist(cfg, specs[specialist], registry, provider, policy, approver, audit, on_event)
-
-    if specs:
+    def with_delegation(registry: ToolRegistry, manager_id: str, path: tuple[str, ...]) -> ToolRegistry:
+        """Add a `delegate` tool that reaches only this agent's own active direct reports."""
+        reports = {m.id: m for m in team.reports(manager_id)}
+        if not reports:
+            return registry
 
         def delegate(specialist: str, task: str) -> str:
-            spec = specs[specialist]
-            if spec.paused:
-                return PAUSED.format(name=spec.name)
-            sub = build_specialist(cfg, spec, registry, provider, policy, approver, audit, on_event)
-            on_event("delegate_start", {"agent": cfg.assistant_name, "specialist": spec.name, "task": task})
-            try:
-                return sub.send(task)
-            finally:
-                on_event("delegate_end", {"agent": cfg.assistant_name, "specialist": spec.name})
+            member = reports[specialist]
+            on_event("delegate", {"agent": path[-1], "path": list(path), "to": member.id,
+                                  "to_name": member.name, "task": task})
+            report = build_member(member, path).send(task)
+            on_event("report", {"agent": member.name, "path": [*path, member.name], "text": report})
+            return report
 
         registry.register(
             Tool(
                 name="delegate",
                 description=(
-                    "Hand a self-contained task to a specialist assistant and get its report back. "
-                    "The specialist cannot see this conversation: include every detail it needs."
+                    "Hand a self-contained task to a member of your team and get their report back. "
+                    "They cannot see this conversation: include every detail they need."
                 ),
                 input_schema=schema(
                     {
-                        "specialist": {"type": "string", "enum": sorted(specs)},
+                        "specialist": {"type": "string", "enum": sorted(reports),
+                                       "description": "Id of the team member to hand the task to."},
                         "task": {"type": "string", "description": "Complete instructions and context."},
                     }
                 ),
                 handler=delegate,
-                # Delegation itself is safe; the specialist's own tool calls are policy-gated.
+                # Handing off is safe in itself; every action the team member takes is policy-gated.
                 risk=Risk.READ,
                 integration="delegation",
             )
         )
+        return registry
 
+    def build_member(member: Member, manager_path: tuple[str, ...]) -> Agent:
+        path = (*manager_path, member.name)
+        manager = manager_path[-1]
+        return Agent(
+            name=member.name,
+            provider=provider,
+            system=delegate_prompt(cfg, member, manager, team.reports(member.id)),
+            registry=with_delegation(tools.subset(skills_of(member)), member.id, path),
+            policy=policy.restricted(member.freedom_level.ceiling),
+            approver=approver,
+            audit=audit,
+            on_event=on_event,
+            path=path,
+            usage=usage,
+            user=user,
+            task=job,
+        )
+
+    top = (cfg.assistant_name,)
+    if member is not None:
+        m = team.get(member)
+        if m is None or not team.is_working(member):
+            raise ValueError(f"'{member}' isn't an active member of the team.")
+        return build_member(m, ("the user",))
+    chief_reports = team.reports(CHIEF_ID)
     return Agent(
         name=cfg.assistant_name,
         provider=provider,
-        system=chief_of_staff_prompt(cfg),
-        registry=registry,
+        system=chief_of_staff_prompt(cfg, chief_reports, dispatcher=bool(chief_reports)),
+        registry=with_delegation(tools.subset(chief_tools(cfg, team, available)), CHIEF_ID, top),
         policy=policy,
         approver=approver,
         audit=audit,
         on_event=on_event,
+        path=top,
+        usage=usage,
+        user=user,
+        task=task,
     )

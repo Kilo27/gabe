@@ -54,10 +54,33 @@ def ensure_config(home: Path) -> Path:
     if not cfg.exists():
         cfg_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy(bundled("gabe", "defaults", "gabe.yaml"), cfg)
+        shutil.copy(bundled("gabe", "defaults", "team.yaml"), cfg_dir / "team.yaml")
         books = bundled("config", "playbooks")
         if books.is_dir():
             shutil.copytree(books, cfg_dir / "playbooks", dirs_exist_ok=True)
+    else:
+        _upgrade_starter_team(cfg)
     return cfg
+
+
+def _upgrade_starter_team(cfg: Path) -> None:
+    """Configs created by the first app build list two specialists under `delegates:`. If they
+    are still exactly the starter ones, move to the starter team file (org chart, notes keeper)."""
+    import yaml
+
+    raw = yaml.safe_load(cfg.read_text()) or {}
+    starter = yaml.safe_load(bundled("gabe", "defaults", "gabe_v0_delegates.yaml").read_text())
+    if raw.get("team_file") or raw.get("delegates") != starter:
+        return
+    team = cfg.parent / "team.yaml"
+    if not team.exists():
+        shutil.copy(bundled("gabe", "defaults", "team.yaml"), team)
+    raw.pop("delegates")
+    raw["team_file"] = "team.yaml"
+    raw.setdefault("assistant", {}).setdefault("own_tools", ["get_current_time", "recall"])
+    shutil.copy(cfg, cfg.with_name(cfg.name + ".bak"))
+    cfg.write_text(yaml.safe_dump(raw, sort_keys=False, allow_unicode=True))
+    log.info("moved the starter specialists to %s", team)
 
 
 # -- API key in the OS keychain (macOS Keychain / Windows Credential Manager) -----

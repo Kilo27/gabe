@@ -7,7 +7,7 @@ and per-integration overrides win over the defaults.
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable
 
 from gabe.tools.registry import Risk, Tool
@@ -17,6 +17,13 @@ class Decision(str, enum.Enum):
     ALLOW = "allow"
     ASK = "ask"
     DENY = "deny"
+
+
+_STRICTNESS = {Decision.ALLOW: 0, Decision.ASK: 1, Decision.DENY: 2}
+
+
+def stricter(a: Decision, b: Decision) -> Decision:
+    return a if _STRICTNESS[a] >= _STRICTNESS[b] else b
 
 
 @dataclass
@@ -50,13 +57,23 @@ class Policy:
     )
     tool_overrides: dict[str, Decision] = field(default_factory=dict)
     integration_overrides: dict[str, Decision] = field(default_factory=dict)
+    # Per-agent limit on top of the company rules (a team member's freedom level).
+    # It can only make a decision stricter, never looser.
+    ceiling: dict[Risk, Decision] = field(default_factory=dict)
 
     def decide(self, tool: Tool) -> Decision:
         if tool.name in self.tool_overrides:
-            return self.tool_overrides[tool.name]
-        if tool.integration in self.integration_overrides:
-            return self.integration_overrides[tool.integration]
-        return self.defaults.get(tool.risk, Decision.ASK)
+            decision = self.tool_overrides[tool.name]
+        elif tool.integration in self.integration_overrides:
+            decision = self.integration_overrides[tool.integration]
+        else:
+            decision = self.defaults.get(tool.risk, Decision.ASK)
+        return stricter(decision, self.ceiling.get(tool.risk, Decision.ALLOW))
+
+    def restricted(self, ceiling: dict[Risk, Decision]) -> "Policy":
+        """A copy of this policy that is at least as strict as `ceiling` (and the current one)."""
+        merged = {r: stricter(self.ceiling.get(r, Decision.ALLOW), ceiling.get(r, Decision.ALLOW)) for r in Risk}
+        return replace(self, ceiling=merged)
 
     @classmethod
     def from_config(cls, cfg: dict[str, Any] | None) -> "Policy":

@@ -582,7 +582,7 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
         reg = registry()
         rows = []
         tools = reg.tools()
-        if cfg.delegates:
+        if cfg.team().members:
             t = find_tool("delegate")
             if t:
                 tools.append(t)
@@ -621,8 +621,6 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
                 "tools": policy_rows(cfg),
                 "integrations": (raw.get("policy") or {}).get("integrations") or {},
             },
-            "delegates": [{"name": d.name, "description": d.description, "instructions": d.instructions.strip(),
-                           "tools": d.tools} for d in cfg.delegates],
             "all_tools": [t.name for t in registry().tools()],
             "provider": provider,
             "integrations": integrations,
@@ -693,28 +691,6 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
 
         state.edit_config(fn)
         person_audit("edit_settings", {"section": "policy"})
-        return settings()
-
-    @app.put("/api/settings/delegates")
-    def save_delegates(payload: dict = Body(...)):
-        known = set(registry()._tools)
-        out = {}
-        for d in payload.get("delegates", []):
-            name = re.sub(r"[^a-z0-9_]+", "_", str(d.get("name", "")).strip().lower()).strip("_")
-            if not name:
-                bad("Every specialist needs a name.")
-            if name in out:
-                bad(f"There are two specialists called '{name}'.")
-            tools = d.get("tools")
-            if tools is not None:
-                unknown = [t for t in tools if t not in known]
-                if unknown:
-                    bad(f"Unknown action(s): {', '.join(unknown)}")
-            out[name] = {"description": str(d.get("description", "")).strip(),
-                         "instructions": str(d.get("instructions", "")).strip() + "\n", "tools": tools}
-
-        state.edit_config(lambda raw: raw.__setitem__("delegates", out))
-        person_audit("edit_settings", {"section": "specialists"})
         return settings()
 
     @app.put("/api/settings/api-key")
@@ -852,44 +828,71 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
         return {"ok": True}
 
     # -- agents ----------------------------------------------------------------
+    # Gabe, the briefing writer and every team member (config/team.yaml), as one list.
+
+    from gabe.team import CHIEF_ID, DEFAULT_FREEDOM, FREEDOM_LEVELS, Member, TeamError, load_team, make_id, save_team
+
+    def team_path() -> Path:
+        """The team file, created from legacy `delegates:` the first time the team is edited."""
+        cfg = state.config()
+        if cfg.team_file is not None:
+            return cfg.team_file
+        path = cfg.root / "team.yaml"
+        if not path.exists():
+            save_team(path, cfg.team())
+        def move(raw):  # the team now lives in team.yaml; config can't have both
+            raw["team_file"] = "team.yaml"
+            raw.pop("delegates", None)
+        state.edit_config(move)
+        return path
+
+    def edit_team(fn) -> None:
+        path = team_path()
+        team = load_team(path)
+        try:
+            fn(team)
+            team.validate(set(registry()._tools))
+        except TeamError as e:
+            bad(str(e))
+        save_team(path, team)
 
     def agent_rows(cfg) -> list[dict[str, Any]]:
-        """Every agent a person is in charge of: Gabe, the briefing writer, each specialist."""
         reg = registry()
         all_tools = [t.name for t in reg.tools()]
         pol = Policy.from_config(cfg.policy)
+        team = cfg.team()
+        from gabe.app import chief_tools
+
+        own = chief_tools(cfg, team, set(all_tools))
         rows = [{
             "id": "chief", "name": cfg.assistant_name, "log_name": cfg.assistant_name, "kind": "chief",
-            "role": "Chief of staff. Takes your requests and hands work to the other agents.",
-            "instructions": "", "tools": all_tools + (["delegate"] if cfg.delegates else []),
-            "paused": cfg.paused, "rules": (cfg.policy or {}).get("tools") or {}, "reports_to": "you",
+            "role": "Chief of staff. Hands your requests to the team.",
+            "instructions": "", "tools": (own if own is not None else all_tools) + (["delegate"] if team.reports(CHIEF_ID) else []),
+            "paused": cfg.paused, "held": False, "rules": (cfg.policy or {}).get("tools") or {}, "reports_to": "you",
+            "freedom": None,
         }, {
             "id": "briefing", "name": "Briefing writer", "log_name": f"{cfg.assistant_name} (briefing)", "kind": "briefing",
             "role": "Writes the daily brief. Read only.",
             "instructions": "", "tools": [t.name for t in reg.tools() if t.risk is Risk.READ],
-            "paused": BriefingSettings.from_config(cfg).paused, "rules": {}, "reports_to": "chief",
+            "paused": BriefingSettings.from_config(cfg).paused, "held": False, "rules": {}, "reports_to": "chief",
+            "freedom": None,
         }]
-        for d in cfg.delegates:
+        for m in team.members:
             rows.append({
-                "id": d.name, "name": d.name, "log_name": d.name, "kind": "specialist", "role": d.description,
-                "instructions": d.instructions.strip(), "tools": d.tools if d.tools is not None else all_tools,
-                "all_tools": d.tools is None, "paused": d.paused, "rules": d.policy, "reports_to": "chief",
+                "id": m.id, "name": m.name, "log_name": m.name, "kind": "member", "role": m.job,
+                "instructions": m.instructions, "tools": [t for t in (m.skills or all_tools) if t in all_tools] + (["delegate"] if team.reports(m.id) else []),
+                "all_tools": m.skills is None, "paused": not m.active, "held": m.active and not team.is_working(m.id),
+                "rules": {}, "reports_to": m.reports_to, "freedom": m.freedom,
             })
         for r in rows:
+            p = pol
+            if r["kind"] == "member":
+                p = pol.restricted(FREEDOM_LEVELS[r["freedom"]].ceiling)
             r["decisions"] = {}
             for name in r["tools"]:
                 t = reg.get(name) or (find_tool("delegate") if name == "delegate" else None)
-                if not t:
-                    continue
-                if r["kind"] == "briefing":
-                    r["decisions"][name] = "allow"
-                elif r["kind"] == "specialist":
-                    spec = next(d for d in cfg.delegates if d.name == r["id"])
-                    from gabe.app import specialist_policy
-
-                    r["decisions"][name] = specialist_policy(pol, spec).decide(t).value
-                else:
-                    r["decisions"][name] = pol.decide(t).value
+                if t:
+                    r["decisions"][name] = "allow" if r["kind"] == "briefing" else p.decide(t).value
         return rows
 
     def agent_or_404(cfg, aid: str) -> dict[str, Any]:
@@ -907,6 +910,7 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
         live = state.live_view()
         pending = [a for a in state.approvals.all() if a["status"] == "pending"]
         by_log = {r["log_name"]: r["id"] for r in rows}
+        by_log.update({r["id"]: r["id"] for r in rows if r["kind"] == "member"})  # older logs used ids
         by_log["briefing"] = "briefing"  # the brief's email send
         timeline: dict[str, list] = {r["id"]: [] for r in rows}
         timeline["you"] = []
@@ -927,107 +931,106 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
             lv = live.get(r["log_name"], {})
             waits = [a for a in pending if a.get("agent") == r["log_name"]]
             working = lv.get("working", 0) > 0 or (r["kind"] == "briefing" and brief_running)
-            r["status"] = "waiting" if waits else "working" if working else "paused" if r["paused"] else "idle"
+            r["status"] = ("waiting" if waits else "working" if working
+                           else "paused" if r["paused"] or r["held"] else "idle")
             r["now"] = lv.get("now") if working else None
-            r["handed_by"] = lv.get("from") if working else None
+            handed = lv.get("from") if working else None
+            r["handed_by"] = "you" if handed == "you" else by_log.get(handed) if handed else None
             r["session"] = lv.get("session")
             r["waiting"] = [a["id"] for a in waits]
             items = timeline[r["id"]]
             r["today"] = {"done": sum(1 for i in items if i["outcome"] == "ok"),
                           "problems": sum(1 for i in items if i["outcome"] != "ok"), "total": len(items)}
         return {"day": day, "today": today_str(), "agents": rows, "timeline": timeline,
-                "request": state.job("agent_request")}
+                "request": state.job("agent_request"),
+                "freedom_levels": [{"key": f.key, "label": f.label, "explanation": f.explanation}
+                                   for f in FREEDOM_LEVELS.values()]}
 
     @app.post("/api/agents/{aid}/pause")
     def pause_agent(aid: str, payload: dict = Body(...)):
         cfg = state.config()
         row = agent_or_404(cfg, aid)
         paused = bool(payload.get("paused"))
-
-        def fn(raw):
-            if row["kind"] == "chief":
-                raw.setdefault("assistant", {})["paused"] = paused
-            elif row["kind"] == "briefing":
-                raw.setdefault("briefing", {})["paused"] = paused
-            else:
-                raw["delegates"][aid]["paused"] = paused
-            for holder in (raw.get("assistant"), raw.get("briefing"), *(raw.get("delegates") or {}).values()):
-                if isinstance(holder, dict) and holder.get("paused") is False:
-                    holder.pop("paused")
-
-        state.edit_config(fn)
+        if row["kind"] == "member":
+            def fn(team):
+                team.get(aid).active = not paused
+            edit_team(fn)
+        else:
+            def fn(raw):
+                section = raw.setdefault("assistant" if row["kind"] == "chief" else "briefing", {})
+                if paused:
+                    section["paused"] = True
+                else:
+                    section.pop("paused", None)
+            state.edit_config(fn)
         person_audit("pause_agent" if paused else "resume_agent", {"agent": row["name"]})
         return {"ok": True}
 
-    @app.put("/api/agents/{aid}/rules")
-    def agent_rules(aid: str, payload: dict = Body(...)):
-        cfg = state.config()
-        row = agent_or_404(cfg, aid)
+    @app.put("/api/agents/chief/rules")
+    def chief_rules(payload: dict = Body(...)):
         rules = {k: v for k, v in (payload.get("rules") or {}).items() if v}
         if any(v not in DECISIONS for v in rules.values()):
             bad("Each rule must be allow, ask or deny.")
-        if row["kind"] == "briefing":
-            bad("The briefing writer is always read only.")
-
-        def fn(raw):
-            if row["kind"] == "chief":
-                raw.setdefault("policy", {})["tools"] = rules
-            else:
-                d = raw["delegates"][aid]
-                if rules:
-                    d["policy"] = rules
-                else:
-                    d.pop("policy", None)
-
-        state.edit_config(fn)
-        person_audit("edit_agent_rules", {"agent": row["name"]})
+        state.edit_config(lambda raw: raw.setdefault("policy", {}).__setitem__("tools", rules))
+        person_audit("edit_agent_rules", {"agent": state.config().assistant_name})
         return {"ok": True}
 
-    def clean_specialist(payload: dict, known: set[str]) -> tuple[str, dict]:
-        name = re.sub(r"[^a-z0-9_]+", "_", str(payload.get("name", "")).strip().lower()).strip("_")
-        if not name or name in ("chief", "briefing", "you"):
-            bad("Give the agent a different name.")
-        tools = payload.get("tools")
-        if tools is not None:
-            tools = [t for t in tools if t != "delegate"]
-            unknown = [t for t in tools if t not in known]
+    def member_from_payload(payload: dict, existing: Member | None, team) -> Member:
+        known = set(registry()._tools)
+        name = str(payload.get("name", existing.name if existing else "")).strip()
+        if not name:
+            bad("Give the agent a name.")
+        skills = payload.get("tools", existing.skills if existing else None)
+        if skills is not None:
+            skills = [t for t in skills if t != "delegate"]
+            unknown = [t for t in skills if t not in known]
             if unknown:
                 bad(f"Unknown action(s): {', '.join(unknown)}")
-            if not tools:
+            if not skills:
                 bad("Give the agent at least one thing it can do.")
-        return name, {"description": str(payload.get("description", "")).strip(),
-                      "instructions": str(payload.get("instructions", "")).strip() + "\n", "tools": tools}
+        freedom = payload.get("freedom", existing.freedom if existing else DEFAULT_FREEDOM)
+        if freedom not in FREEDOM_LEVELS:
+            bad("Unknown freedom level.")
+        return Member(
+            id=existing.id if existing else make_id(str(payload.get("id") or name), {m.id for m in team.members}),
+            name=name,
+            job=str(payload.get("description", payload.get("job", existing.job if existing else ""))).strip(),
+            instructions=str(payload.get("instructions", existing.instructions if existing else "")).strip(),
+            reports_to=str(payload.get("reports_to", existing.reports_to if existing else CHIEF_ID)) or CHIEF_ID,
+            skills=skills, freedom=freedom, active=existing.active if existing else True,
+        )
 
     @app.post("/api/agents")
     def add_agent(payload: dict = Body(...)):
-        name, spec = clean_specialist(payload, set(registry()._tools))
-        if name in {d.name for d in state.config().delegates}:
-            bad(f"There's already an agent called {name}.")
-        state.edit_config(lambda raw: raw.__setitem__("delegates", {**(raw.get("delegates") or {}), name: spec}))
-        person_audit("add_agent", {"agent": name})
-        return {"id": name}
+        added = {}
+
+        def fn(team):
+            m = member_from_payload(payload, None, team)
+            team.upsert(m)
+            added["id"] = m.id
+        edit_team(fn)
+        person_audit("add_agent", {"agent": added["id"]})
+        return added
 
     @app.put("/api/agents/{aid}")
     def edit_agent(aid: str, payload: dict = Body(...)):
         row = agent_or_404(state.config(), aid)
-        if row["kind"] != "specialist":
-            bad("Only specialist agents can be edited here.")
-        name, spec = clean_specialist({**payload, "name": aid}, set(registry()._tools))
+        if row["kind"] != "member":
+            bad("This agent can't be edited here.")
 
-        def fn(raw):
-            raw["delegates"][aid].update(spec)
-
-        state.edit_config(fn)
-        person_audit("edit_agent", {"agent": aid})
+        def fn(team):
+            team.upsert(member_from_payload(payload, team.get(aid), team))
+        edit_team(fn)
+        person_audit("edit_agent", {"agent": row["name"]})
         return {"id": aid}
 
     @app.delete("/api/agents/{aid}")
     def remove_agent(aid: str):
         row = agent_or_404(state.config(), aid)
-        if row["kind"] != "specialist":
+        if row["kind"] != "member":
             bad("This agent can't be removed, only paused.")
-        state.edit_config(lambda raw: raw["delegates"].pop(aid, None))
-        person_audit("remove_agent", {"agent": aid})
+        edit_team(lambda team: team.remove(aid))
+        person_audit("remove_agent", {"agent": row["name"]})
         return {"ok": True}
 
     @app.post("/api/agents/{aid}/jobs")
@@ -1038,12 +1041,12 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
             return {"job": run_brief()}
         if not text:
             bad("Say what the job is.")
-        agent = None if row["kind"] == "chief" else aid
+        member = None if row["kind"] == "chief" else aid
         try:
-            state.check_not_paused(agent)
+            state.check_not_paused(member)
         except RuntimeError as e:
             bad(str(e), 409)
-        s = state.sessions.create(title=text[:60] + ("…" if len(text) > 60 else ""), agent=agent)
+        s = state.sessions.create(title=text[:60] + ("…" if len(text) > 60 else ""), agent=member)
         state.sessions.send(s["id"], text)
         return {"session_id": s["id"]}
 
@@ -1054,17 +1057,17 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
             bad("Describe the role you need.")
         cfg = state.config()
         tools = [{"name": t.name, "what": t.description.split(".")[0]} for t in registry().tools()]
-        existing = [{"name": d.name, "role": d.description} for d in cfg.delegates]
+        existing = [{"id": m.id, "name": m.name, "job": m.job, "reports_to": m.reports_to} for m in cfg.team().members]
 
         def go():
             prompt = (
-                "A person wants a new specialist agent on the team. Design it.\n"
+                "A person wants a new AI assistant on the team. Design it.\n"
                 f"Role they asked for: {role}\n"
-                f"Existing specialists: {json.dumps(existing)}\n"
+                f"Current team (reports_to 'chief' means it reports to you): {json.dumps(existing)}\n"
                 f"Actions available (pick only what the role needs): {json.dumps(tools)}\n"
-                "Reply with ONLY a JSON object: {\"name\": short lowercase_with_underscores, "
-                "\"description\": one line, \"instructions\": 3-6 plain sentences on how it works, "
-                "\"tools\": [action names]}."
+                "Reply with ONLY a JSON object: {\"name\": short display name, \"description\": one line, "
+                "\"instructions\": 3-6 plain sentences on how it works, \"tools\": [action names], "
+                "\"reports_to\": \"chief\" or the id of the team member it should report to}."
             )
             text = build_briefer(cfg).send(prompt)
             m = re.search(r"\{.*\}", text, re.S)
@@ -1072,9 +1075,12 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
                 raise RuntimeError(f"{cfg.assistant_name} didn't come back with a proposal. Try describing the role differently.")
             p = json.loads(m.group(0))
             known = set(registry()._tools)
-            return {"role": role, "name": str(p.get("name", "")), "description": str(p.get("description", "")),
+            ids = {x["id"] for x in existing}
+            reports_to = str(p.get("reports_to") or CHIEF_ID)
+            return {"role": role, "name": str(p.get("name", "")).strip(), "description": str(p.get("description", "")),
                     "instructions": str(p.get("instructions", "")),
-                    "tools": [t for t in p.get("tools") or [] if t in known]}
+                    "tools": [t for t in p.get("tools") or [] if t in known],
+                    "reports_to": reports_to if reports_to in ids else CHIEF_ID, "freedom": DEFAULT_FREEDOM}
 
         return state.start_job("agent_request", go)
 

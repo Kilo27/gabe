@@ -129,11 +129,13 @@ export type Settings = {
 export type AgentStatus = "idle" | "working" | "waiting" | "paused";
 export type AgentNow = { kind: "tool"; tool: string; input: any; outcome: string; ts: string } | { kind: "thought" | "task"; text: string; ts: string };
 export type Agent = {
-  id: string; name: string; log_name: string; kind: "chief" | "briefing" | "specialist"; role: string; instructions: string;
-  tools: string[]; all_tools?: boolean; paused: boolean; rules: Record<string, Decision>; decisions: Record<string, Decision>;
+  id: string; name: string; log_name: string; kind: "chief" | "briefing" | "member"; role: string; instructions: string;
+  tools: string[]; all_tools?: boolean; paused: boolean; held: boolean; freedom: string | null;
+  rules: Record<string, Decision>; decisions: Record<string, Decision>;
   reports_to: string; status: AgentStatus; now: AgentNow | null; handed_by: string | null; session: string | null;
   waiting: string[]; today: { done: number; problems: number; total: number };
 };
 export type TimelineItem = { ts: string; minute: number; tool: string; outcome: string; input: any };
-export type Proposal = { role: string; name: string; description: string; instructions: string; tools: string[] };
-export type AgentsData = { day: string; today: string; agents: Agent[]; timeline: Record<string, TimelineItem[]>; request: (Job & { result?: Proposal }) | null };
+export type Proposal = { role: string; name: string; description: string; instructions: string; tools: string[]; reports_to: string; freedom: string };
+export type FreedomLevel = { key: string; label: string; explanation: string };
+export type AgentsData = { day: string; today: string; agents: Agent[]; timeline: Record<string, TimelineItem[]>; request: (Job & { result?: Proposal }) | null; freedom_levels: FreedomLevel[] };
