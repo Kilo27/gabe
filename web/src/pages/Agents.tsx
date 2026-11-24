@@ -6,7 +6,7 @@ import { api, type Agent, type AgentsData, type Approval, type Decision, type Jo
 import { ApprovalCard } from "../components/ApprovalCard";
 import { AttachedTask, TaskPicker } from "../components/TaskPicker";
 import { Field, Notice, PageHeader, Segmented, Sheet, SkeletonList, useToast } from "../components/ui";
-import { agentHue, agentLabel, nowText } from "../lib/agents";
+import { MODELS, agentHue, agentLabel, modelLabel, nowText } from "../lib/agents";
 import type { Area } from "../lib/areas";
 import { when } from "../lib/format";
 import { DECISION_WORDS, outcome, tool } from "../lib/tools";
@@ -279,7 +279,16 @@ function FreedomPick({ value, onChange, levels }: { value: string; onChange: (v:
   );
 }
 
-function ManagerPick({ value, onChange, agents, self }: { value: string; onChange: (v: string) => void; agents: Hued[]; self?: string }) {
+function ModelPick({ value, onChange, lastUsed }: { value: string | null | undefined; onChange: (v: string | null) => void; lastUsed?: string | null }) {
+  return (
+    <select className="select" value={value ?? ""} onChange={(e) => onChange(e.target.value || null)}>
+      <option value="">{lastUsed ? `Default (last job: ${modelLabel(lastUsed)})` : "Default"}</option>
+      {Object.entries(MODELS).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+    </select>
+  );
+}
+
+function ManagerPick({ value, onChange, agents, self, auto }: { value: string; onChange: (v: string) => void; agents: Hued[]; self?: string; auto?: boolean }) {
   // Can't report to yourself or to anyone under you.
   const under = new Set<string>();
   if (self) {
@@ -288,6 +297,7 @@ function ManagerPick({ value, onChange, agents, self }: { value: string; onChang
   }
   return (
     <select className="select" value={value} onChange={(e) => onChange(e.target.value)}>
+      {auto && <option value="">Default</option>}
       {agents.filter((x) => x.kind !== "briefing" && x.id !== self && !under.has(x.id)).map((x) => (
         <option key={x.id} value={x.id}>{agentLabel(x)}</option>
       ))}
@@ -310,12 +320,13 @@ function AgentSheet({ a, agents, levels, onClose }: { a: Hued; agents: Hued[]; l
   const [tools, setTools] = useState<string[]>(a.tools.filter((t) => t !== "delegate"));
   const [manager, setManager] = useState(a.reports_to);
   const [freedom, setFreedom] = useState(a.freedom ?? "standard");
+  const [model, setModel] = useState<string | null>(a.model);
   const settings = useQuery({ queryKey: ["settings"], queryFn: () => api.get<{ all_tools: string[] }>("/api/settings"), enabled: member });
 
   const save = useMutation({
     mutationFn: async () => {
       if (a.kind === "chief") await api.put("/api/agents/chief/rules", { rules });
-      if (member) await api.put(`/api/agents/${a.id}`, { name, description: role, instructions, tools, reports_to: manager, freedom });
+      if (member) await api.put(`/api/agents/${a.id}`, { name, description: role, instructions, tools, reports_to: manager, freedom, model });
     },
     onSuccess: () => { inval(); toast("Saved", a.hue); onClose(); },
     onError: (e: Error) => toast(e.message, "danger"),
@@ -352,7 +363,10 @@ function AgentSheet({ a, agents, levels, onClose }: { a: Hued; agents: Hued[]; l
               <Field label="Name"><input className="input" value={name} onChange={(e) => setName(e.target.value)} /></Field>
               <Field label="Reports to"><ManagerPick value={manager} onChange={setManager} agents={agents} self={a.id} /></Field>
             </div>
-            <Field label="Job"><input className="input" value={role} onChange={(e) => setRole(e.target.value)} /></Field>
+            <div className="form-grid">
+              <Field label="Job"><input className="input" value={role} onChange={(e) => setRole(e.target.value)} /></Field>
+              <Field label="Model"><ModelPick value={model} onChange={setModel} lastUsed={a.model ? null : a.model_in_use} /></Field>
+            </div>
             <Field label="Instructions"><textarea className="textarea" rows={4} value={instructions} onChange={(e) => setInstructions(e.target.value)} /></Field>
             <div className="field"><span>Freedom</span><FreedomPick value={freedom} onChange={setFreedom} levels={levels} /></div>
             <div className="field">
@@ -368,6 +382,7 @@ function AgentSheet({ a, agents, levels, onClose }: { a: Hued; agents: Hued[]; l
         ) : (
           <>
             <p className="muted">{a.role}</p>
+            <div className="field"><span>Model</span><strong>{modelLabel(a.model_in_use)}</strong></div>
             <div className="field">
               <span>{a.kind === "chief" ? "What it does itself" : "What it may do"}</span>
               <div className="perm-list">
@@ -409,6 +424,9 @@ function RequestSheet({ request, agents, levels, onClose }: { request: AgentsDat
   const toast = useToast();
   const inval = useInvalidate();
   const [role, setRole] = useState("");
+  const [manager, setManager] = useState("");
+  const [model, setModel] = useState<string | null>(null);
+  const [freedom, setFreedom] = useState("standard");
   const [draft, setDraft] = useState<Proposal | null>(null);
   const settings = useQuery({ queryKey: ["settings"], queryFn: () => api.get<{ all_tools: string[] }>("/api/settings") });
   const running = request?.status === "running";
@@ -417,7 +435,7 @@ function RequestSheet({ request, agents, levels, onClose }: { request: AgentsDat
   }, [request, draft]);
 
   const ask = useMutation({
-    mutationFn: () => api.post("/api/agents/request", { role }),
+    mutationFn: () => api.post("/api/agents/request", { role, reports_to: manager || null, model, freedom }),
     onSuccess: () => { setDraft(null); inval(); },
     onError: (e: Error) => toast(e.message, "danger"),
   });
@@ -440,6 +458,11 @@ function RequestSheet({ request, agents, levels, onClose }: { request: AgentsDat
           <Field label="Role">
             <textarea className="textarea" rows={3} value={role} onChange={(e) => setRole(e.target.value)} placeholder="e.g. Chases unpaid invoices" disabled={running} />
           </Field>
+          <div className="form-grid">
+            <Field label="Reports to"><ManagerPick value={manager} onChange={setManager} agents={agents} auto /></Field>
+            <Field label="Model"><ModelPick value={model} onChange={setModel} /></Field>
+          </div>
+          <div className="field"><span>Freedom</span><FreedomPick value={freedom} onChange={setFreedom} levels={levels.filter((f) => f.key !== "trusted")} /></div>
           {request?.status === "error" && <Notice hue="danger" icon={AlertTriangle}>{request.error}</Notice>}
           <div>
             <button className="btn btn-primary" disabled={!role.trim() || running || ask.isPending}>
@@ -453,7 +476,10 @@ function RequestSheet({ request, agents, levels, onClose }: { request: AgentsDat
             <Field label="Name"><input className="input" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></Field>
             <Field label="Reports to"><ManagerPick value={draft.reports_to} onChange={(v) => setDraft({ ...draft, reports_to: v })} agents={agents} /></Field>
           </div>
-          <Field label="Job"><input className="input" value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} /></Field>
+          <div className="form-grid">
+            <Field label="Job"><input className="input" value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} /></Field>
+            <Field label="Model"><ModelPick value={draft.model} onChange={(v) => setDraft({ ...draft, model: v })} /></Field>
+          </div>
           <Field label="Instructions"><textarea className="textarea" rows={5} value={draft.instructions} onChange={(e) => setDraft({ ...draft, instructions: e.target.value })} /></Field>
           <div className="field"><span>Freedom</span><FreedomPick value={draft.freedom} onChange={(v) => setDraft({ ...draft, freedom: v })} levels={levels} /></div>
           <div className="field">

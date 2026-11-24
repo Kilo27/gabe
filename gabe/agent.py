@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -16,6 +17,18 @@ EventHandler = Callable[[str, dict[str, Any]], None]
 
 def _ignore(kind: str, data: dict[str, Any]) -> None:
     pass
+
+
+FAILED_MARK = re.compile(r"\n?\s*\**JOB FAILED:\**\s*(.+?)\s*$")
+
+
+class Unfinished(RuntimeError):
+    """The agent stopped without finishing the job (declined, cut off, ran out of steps).
+    Raised, never returned as an answer, so it can't pass for a finished job."""
+
+    def __init__(self, message: str, partial: str = "") -> None:
+        super().__init__(message)
+        self.partial = partial.strip()
 
 
 @dataclass
@@ -34,6 +47,7 @@ class Agent:
     max_steps: int = 40
     # Names from the top of the hierarchy down to this agent, e.g. ("Gabe", "Operations lead").
     path: tuple[str, ...] = ()
+    tier: str | None = None  # the model tier a team member runs on (None for Gabe)
     _conv: Conversation | None = field(default=None, init=False, repr=False)
 
     @property
@@ -66,15 +80,21 @@ class Agent:
             if result.stop == "pause":
                 continue  # server-side tool loop paused; resend to resume
             if result.stop == "refusal":
-                return result.text or f"[{self.name} declined this request: {result.detail or 'no detail'}]"
+                raise Unfinished(f"{self.name} declined this request ({result.detail or 'no detail given'}).",
+                                 result.text)
             if result.stop == "max_tokens":
                 # Never run tool calls from a truncated turn: their inputs may be cut off.
-                return (result.text + "\n[response truncated: output limit reached]").strip()
+                raise Unfinished(f"{self.name}'s answer was cut off at the output limit.", result.text)
             if result.stop == "tool_use" and result.tool_calls:
                 conv.add_tool_results([self._run_tool(c) for c in result.tool_calls])
                 continue
+            # An agent that couldn't do the job says so on its last line (see prompts.OUTCOME_NOTE).
+            failed = FAILED_MARK.search(result.text or "")
+            if failed:
+                raise Unfinished(f"{self.name} couldn't do it: {failed.group(1)}",
+                                 result.text[: failed.start()])
             return result.text
-        return f"[{self.name} stopped after {self.max_steps} steps without finishing]"
+        raise Unfinished(f"{self.name} stopped after {self.max_steps} steps without finishing.")
 
     def _run_tool(self, call: ToolCall) -> ToolResult:
         def done(content: str, is_error: bool = False, outcome: str = "ok") -> ToolResult:
@@ -110,4 +130,5 @@ class Agent:
         try:
             return done(tool.run(call.input))
         except Exception as e:  # tool failures go back to the model, not up the stack
-            return done(f"{type(e).__name__}: {e}", True, "error")
+            return done(f"{type(e).__name__}: {e}\nRetrying the same call will fail the same way unless "
+                        f"something has changed.", True, "error")

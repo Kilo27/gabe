@@ -21,13 +21,30 @@ from typing import Any, Callable
 
 import yaml
 
-from gabe.agent import Agent
+import logging
+
+from gabe.agent import Agent, Unfinished
 from gabe.app import build_gabe
 from gabe.audit import AuditLog
 from gabe.config import Config, load_config
 from gabe.integrations._store import JsonStore
 from gabe.policy import Declined
 from gabe.tools.registry import Tool, validate_input
+
+
+log = logging.getLogger(__name__)
+
+FIX_PROMPT = """A job failed and needs fixing.
+Job: {job}
+Given to: {who}
+What was asked:
+{request}
+What went wrong: {error}
+{steps}
+Work out why it failed, then fix it: retry it through your team (clearer instructions, a
+stronger model, or someone else) or do it yourself. If only a person can fix it (a missing
+connection, a permission, a decision), use ask_user to tell them exactly what to do. Finish
+with what went wrong and whether the job is now done."""
 
 
 def now() -> str:
@@ -38,10 +55,22 @@ def new_id() -> str:
     return uuid.uuid4().hex[:10]
 
 
+MODEL_UNREACHABLE = ("AuthenticationError", "APIConnectionError", "ConnectError", "ConnectTimeout", "RateLimitError")
+
+
+def gabe_can_fix(e: BaseException) -> bool:
+    """False when Gabe itself can't run (no key, no connection, rate limited), so asking it to fix
+    the failure would only fail again."""
+    name = type(e).__name__
+    return name not in MODEL_UNREACHABLE and "api_key" not in str(e).lower() and "auth" not in name.lower()
+
+
 def friendly_error(e: BaseException) -> str:
     """Turn an exception into something a non-technical person can act on."""
     name = type(e).__name__
     text = str(e)
+    if isinstance(e, Unfinished):
+        return text + (f"\n\nWhat it had so far:\n{e.partial}" if e.partial else "")
     if name == "AuthenticationError" or "api_key" in text.lower() or "auth" in name.lower():
         return (
             "Gabe couldn't sign in to its AI model. The API key is missing or wrong. "
@@ -242,7 +271,11 @@ class Sessions:
             def on_event(kind: str, data: dict[str, Any]) -> None:
                 live = holder["live"]
                 self.app.track(kind, data, sid)
-                if kind == "approval_needed":
+                if kind == "failed":
+                    self.app.notify("failed", f"{data.get('agent')} couldn't finish",
+                                    f"{data.get('error', '')} {data.get('by', 'Its manager')} is looking into it.",
+                                    sid, data.get("agent"))
+                elif kind == "approval_needed":
                     live.asking_agent = data.get("agent", "")
                 elif kind == "step":
                     self.app.record_usage(data.get("usage") or {})
@@ -304,7 +337,7 @@ class Sessions:
             self._live[sid] = live
             return live
 
-    def send(self, sid: str, text: str, task: dict[str, Any] | None = None) -> dict[str, Any]:
+    def send(self, sid: str, text: str, task: dict[str, Any] | None = None, auto: bool = False) -> dict[str, Any]:
         """Give the agent a message. With `task` (a task-list entry), the agent gets its details
         and is asked to keep it up to date; the task records who is working on it."""
         text = text.strip()
@@ -319,6 +352,8 @@ class Sessions:
                 raise RuntimeError("Gabe is still working on your last message.")
             live.running = True
         user_msg = {"id": new_id(), "role": "user", "text": text, "ts": now(), "status": "done", "activity": []}
+        if auto:
+            user_msg["auto"] = True  # written by Gabe (e.g. a failure to fix), not typed by a person
         prompt = text
         if task:
             user_msg["task"] = {"id": task["id"], "title": task["title"]}
@@ -345,15 +380,21 @@ class Sessions:
         self.app.track("start", {"agent": root}, sid)
 
         def run():
+            error: BaseException | None = None
             try:
                 answer = live.agent.send(prompt)
                 patch = {"text": answer, "status": "done"}
             except Exception as e:  # shown in the chat, not raised
+                error = e
                 patch = {"text": friendly_error(e), "status": "error"}
             self._patch_message(sid, reply_id, lambda m: m.update(patch, ts=now()))
             self._store(sid).update(lambda s: s.update(status="idle"))
             live.running = False
             self.app.track("end", {"agent": root}, sid)
+            try:
+                self._announce(sid, root, prompt, reply_id, error)
+            except Exception:  # an announcement must never break the run
+                log.exception("couldn't announce the outcome of %s", sid)
 
         threading.Thread(target=run, daemon=True, name=f"chat-{sid}").start()
 
@@ -405,6 +446,38 @@ class Sessions:
         self.interrupted = []
         return picked
 
+    def _announce(self, sid: str, who: str, request: str, message_id: str, error: BaseException | None) -> None:
+        """Every run ends in a notice: done, or failed (and, when it can, Gabe sets about fixing it)."""
+        s = self._store(sid).load()
+        title = s.get("title", "")
+        if error is None:
+            self.app.notify("done", f"{who} finished", title, sid, who)
+            return
+        fix = None
+        if not s.get("fix_of") and gabe_can_fix(error):
+            msg = next((m for m in s.get("messages", []) if m["id"] == message_id), {})
+            steps = [f"- {a.get('agent', who)}: {a['tool']} ({a.get('outcome', '')})"
+                     for a in msg.get("activity", []) if a.get("kind") == "tool"][-8:]
+            fix = self.start_fix(title, who, request, friendly_error(error), steps, failed_sid=sid)
+            if fix:
+                self._patch_message(sid, message_id, lambda m: m.update(fix_session=fix))
+        heading = f"Gabe couldn't fix {title}" if s.get("fix_of") else f"{who} couldn't finish"
+        body = str(error) or type(error).__name__
+        self.app.notify("failed", heading, body + (" Gabe is looking into it." if fix else ""), fix or sid, who)
+
+    def start_fix(self, job: str, who: str, request: str, error: str, steps: list[str] | None = None,
+                  failed_sid: str | None = None) -> str | None:
+        """Hand a failed job to Gabe in a new conversation. Returns its id, or None when Gabe
+        can't take it (paused)."""
+        if self.app.config().paused:
+            return None
+        s = self.create(title=f"Fixing: {job}"[:60])
+        self._store(s["id"]).update(lambda d: d.update(fix_of=failed_sid or job))
+        prompt = FIX_PROMPT.format(job=job, who=who, request=request.strip() or "(no details)", error=error,
+                                   steps=("Last steps before it failed:\n" + "\n".join(steps) + "\n") if steps else "")
+        self.send(s["id"], prompt, auto=True)
+        return s["id"]
+
     def reset_idle(self) -> None:
         """Drop every idle conversation's agent so the next message rebuilds it (e.g. new API key)."""
         with self._guard:
@@ -447,6 +520,7 @@ class WebState:
         self.approvals = ApprovalQueue(self.web_dir / "approvals.json")
         self.sessions = Sessions(self.web_dir / "sessions", self)
         self.usage = JsonStore(self.web_dir / "usage.json", {"days": {}})
+        self.notices = JsonStore(self.web_dir / "notices.json", {"notices": []})
         self.resumed: list[dict[str, Any]] = []  # interrupted work picked up on this start
         self.jobs: dict[str, dict[str, Any]] = {}
         self.jobs_lock = threading.Lock()
@@ -467,7 +541,7 @@ class WebState:
                 a["session"] = sid
                 a["from"] = data.get("agent") if kind == "delegate" else "you"
                 a["now"] = {"text": data.get("task", ""), "ts": now(), "kind": "task"} if kind == "delegate" else None
-            elif kind in ("end", "report"):
+            elif kind in ("end", "report", "failed"):
                 a["working"] = max(0, a["working"] - 1)
                 if not a["working"]:
                     a["now"] = None
@@ -476,6 +550,27 @@ class WebState:
                 a["now"] = {"tool": data.get("tool"), "input": data.get("input"), "outcome": data.get("outcome"), "ts": now(), "kind": "tool"}
             elif kind == "thought":
                 a["now"] = {"text": data.get("text", ""), "ts": now(), "kind": "thought"}
+
+    def notify(self, kind: str, title: str, body: str = "", session_id: str | None = None,
+               agent: str | None = None) -> dict[str, Any]:
+        """Record that a job finished ("done") or failed ("failed"). The app shows each one once,
+        and the desktop app sends a system notification for it."""
+        rec = {"id": new_id(), "kind": kind, "title": title, "body": body.strip()[:400],
+               "session_id": session_id, "agent": agent, "ts": now()}
+        self.notices.update(lambda d: d.__setitem__("notices", (d.get("notices", []) + [rec])[-200:]))
+        (log.warning if kind == "failed" else log.info)("%s: %s. %s", kind, title, rec["body"])
+        return rec
+
+    def job_failed(self, label: str, error: BaseException, request: str, fixable: bool = True) -> None:
+        """A job outside any conversation (the daily brief, inbox sorting) failed."""
+        text = friendly_error(error)
+        fix = None
+        if fixable and gabe_can_fix(error):
+            try:
+                fix = self.sessions.start_fix(label, self.config().assistant_name, request, text)
+            except Exception:
+                log.exception("couldn't hand %s to Gabe", label)
+        self.notify("failed", f"{label} failed", text + (" Gabe is looking into it." if fix else ""), fix)
 
     def live_view(self) -> dict[str, dict[str, Any]]:
         with self.live_lock:
@@ -535,7 +630,10 @@ class WebState:
         self.usage.update(upd)
 
     # Background jobs (briefing, inbox sorting, Gmail sign-in): one of each at a time.
-    def start_job(self, name: str, fn: Callable[[], Any]) -> dict[str, Any]:
+    def start_job(self, name: str, fn: Callable[[], Any], label: str | None = None, request: str = "",
+                  fixable: bool = False) -> dict[str, Any]:
+        """Run `fn` in the background. With `label`, its outcome is announced; with `fixable`,
+        Gabe is asked to fix a failure (`request` says what the job was)."""
         with self.jobs_lock:
             job = self.jobs.get(name)
             if job and job["status"] == "running":
@@ -548,9 +646,15 @@ class WebState:
             try:
                 job["result"] = fn()
                 job["status"] = "done"
+                if label:
+                    self.notify("done", f"{label} finished")
             except Exception as e:
                 job["error"] = friendly_error(e)
                 job["status"] = "error"
+                if label:
+                    self.job_failed(label, e, request, fixable)
+                else:
+                    log.warning("job %s failed: %s", name, e)
             job["finished"] = now()
 
         threading.Thread(target=run, daemon=True, name=f"job-{name}").start()

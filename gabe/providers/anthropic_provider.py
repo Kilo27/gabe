@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 import anthropic
@@ -11,6 +12,7 @@ from gabe.tools.registry import Tool
 
 DEFAULT_MODEL = "claude-opus-5-5"
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
+DEFAULT_TIERS = {"haiku": "claude-haiku-5-5", "sonnet": "claude-sonnet-5-5", "opus": "claude-opus-5-5"}
 
 _STOP_MAP = {
     "end_turn": "done",
@@ -40,6 +42,13 @@ class AnthropicProvider(Provider):
 
     def start(self, system: str, tools: list[Tool]) -> Conversation:
         return AnthropicConversation(self, system, tools)
+
+    def with_model(self, model: str) -> "AnthropicProvider":
+        if model == self.model:
+            return self
+        other = copy.copy(self)  # shares the client
+        other.model = model
+        return other
 
 
 class AnthropicConversation(Conversation):
@@ -93,7 +102,7 @@ class AnthropicConversation(Conversation):
         }
         if self.tool_defs:
             req["tools"] = self.tool_defs
-        if self.p.refusal_fallback:
+        if self.p.refusal_fallback and "haiku" not in self.p.model:  # Haiku has no server-side fallback
             # On a safety decline, the API re-runs the turn on a fallback model.
             req["betas"] = [FALLBACK_BETA]
             req["fallbacks"] = "default"

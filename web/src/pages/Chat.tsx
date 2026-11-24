@@ -136,6 +136,7 @@ function Thread({ id }: { id: string }) {
           m.role === "user" ? (
             <div key={m.id} className="msg msg-user" data-area="ask">
               <div className="bubble">
+                {m.auto && <div style={{ marginBottom: 6, fontSize: 13, opacity: 0.8 }}>Sent automatically</div>}
                 {m.task && <div style={{ marginBottom: 6 }}><span className="bubble-task"><CheckSquare size={13} /> {m.task.title}</span></div>}
                 {m.text}
               </div>
@@ -158,7 +159,10 @@ function Thread({ id }: { id: string }) {
                   <div className="working" data-area="activity"><Loader2 size={17} className="spin" /> The app closed during this. Picking it back up…</div>
                 )}
                 {m.text && (m.status === "error" ? (
-                  <Notice hue="danger" icon={AlertTriangle}>{m.text}</Notice>
+                  <Notice hue="danger" icon={AlertTriangle}>
+                    {m.text}
+                    {m.fix_session && <div style={{ marginTop: 8 }}><Link to={`/ask/${m.fix_session}`}>Gabe is fixing this</Link></div>}
+                  </Notice>
                 ) : <Markdown text={m.text} />)}
               </div>
             </div>

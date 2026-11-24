@@ -54,5 +54,17 @@ class Conversation(ABC):
 
 
 class Provider(ABC):
+    # Model id per tier (haiku / sonnet / opus), so each team member can run on the model
+    # its work needs. A tier with no entry uses the provider's own model.
+    tiers: dict[str, str] = {}
+
     @abstractmethod
     def start(self, system: str, tools: list[Tool]) -> Conversation: ...
+
+    def with_model(self, model: str) -> "Provider":
+        """This provider on another model, sharing its connection. Default: unchanged."""
+        return self
+
+    def for_tier(self, tier: str | None) -> "Provider":
+        model = self.tiers.get(tier) if tier else None
+        return self.with_model(model) if model else self

@@ -19,7 +19,10 @@ class ScriptedConversation(Conversation):
         self.log.append(("tool_results", results))
 
     def step(self) -> StepResult:
-        return self.script.pop(0)
+        item = self.script.pop(0)
+        if isinstance(item, BaseException):  # lets a test make a model call fail
+            raise item
+        return item
 
 
 class ScriptedProvider(Provider):

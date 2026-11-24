@@ -22,11 +22,15 @@ provider:
   model: claude-opus-5-5
   effort: high            # low | medium | high | xhigh | max
   refusal_fallback: true  # re-run a declined turn on a fallback model server-side
+  # Gabe runs on `model`; each team member runs on its tier (model: in the team file).
+  # Defaults shown; override any of them here.
+  # tiers: {haiku: claude-haiku-5-5, sonnet: claude-sonnet-5-5, opus: claude-opus-5-5}
 # provider:
 #   kind: openai_compatible
 #   base_url: http://gpu-box.local:8000/v1   # vLLM / SGLang serving GLM
 #   model: glm-5.3
 #   max_tokens: 8192
+#   tiers: {haiku: glm-5.3-flash, sonnet: glm-5.3, opus: glm-5.3}
 
 data_dir: ../data
 

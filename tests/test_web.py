@@ -189,6 +189,130 @@ def test_task_alone_is_enough_for_a_job(config_file, monkeypatch):
     assert len(c.get("/api/sessions").json()) == before  # no empty conversation left behind
 
 
+def _request(config_file, monkeypatch, reply, **choices):
+    import gabe.briefing as briefing
+    import gabe.web.server as server
+
+    provider = ScriptedProvider([StepResult(reply, [], "done")])
+    orig = briefing.build_briefer
+    monkeypatch.setattr(server, "build_briefer", lambda cfg, **kw: orig(cfg, provider=provider, **kw))
+    c = TestClient(create_app(config_file))
+    r = c.post("/api/agents/request", json={"role": "Chases unpaid invoices", **choices})
+    assert r.status_code == 200, r.text
+    job = _wait(lambda: (j := c.get("/api/agents").json()["request"]) and j["status"] != "running" and j)
+    sent = next(x for k, x in provider.log if k == "user")
+    return job["result"], sent
+
+
+PROPOSAL = ('{"name": "Invoice chaser", "description": "Chases invoices", "instructions": "Be polite.", '
+            '"tools": [], "reports_to": "chief", "model": "opus"}')
+
+
+def test_request_an_agent_uses_gabes_choices_by_default(config_file, monkeypatch):
+    result, _ = _request(config_file, monkeypatch, PROPOSAL)
+    assert result["reports_to"] == "chief" and result["model"] == "opus" and result["freedom"] == "standard"
+
+
+def test_request_an_agent_keeps_the_persons_choices(config_file, monkeypatch):
+    c = TestClient(create_app(config_file))
+    member = next(a["id"] for a in c.get("/api/agents").json()["agents"] if a["kind"] == "member")
+    result, sent = _request(config_file, monkeypatch, PROPOSAL, reports_to=member, model="haiku", freedom="ask_first")
+    assert result["reports_to"] == member and result["model"] == "haiku" and result["freedom"] == "ask_first"
+    assert f"reports to '{member}'" in sent and "runs on haiku" in sent
+
+
+def test_request_an_agent_refuses_bad_choices(config_file):
+    c = TestClient(create_app(config_file))
+    assert c.post("/api/agents/request", json={"role": "x", "model": "gpt"}).status_code == 400
+    assert c.post("/api/agents/request", json={"role": "x", "reports_to": "nobody"}).status_code == 400
+
+
+# ---- job outcomes are announced; failures go to Gabe to fix --------------------------
+
+def _run(c, text, agent=None):
+    sid = c.post("/api/sessions", json={"agent": agent} if agent else {}).json()["id"]
+    c.post(f"/api/sessions/{sid}/messages", json={"text": text})
+    _wait(lambda: c.get(f"/api/sessions/{sid}").json()["status"] == "idle")
+    return sid
+
+
+def _notices(c, n):
+    return _wait(lambda: len(x := c.get("/api/notices").json()) >= n and x)
+
+
+def test_finished_job_is_announced(config_file, monkeypatch):
+    c, _ = _client(config_file, monkeypatch, [StepResult("All done.", [], "done")])
+    sid = _run(c, "Tidy the task list")
+    [n] = _notices(c, 1)
+    assert n["kind"] == "done" and n["session_id"] == sid and n["title"] == "Gabe finished"
+
+
+def test_failed_job_is_announced_and_handed_to_gabe(config_file, monkeypatch):
+    c, provider = _client(config_file, monkeypatch, [RuntimeError("the mail server said no"),
+                                                     StepResult("Retried; it worked.", [], "done")])
+    sid = _run(c, "Send the invoices")
+    notices = _notices(c, 2)
+    failed = next(n for n in notices if n["kind"] == "failed")
+    assert "mail server said no" in failed["body"] and "Gabe is looking into it" in failed["body"]
+    msg = c.get(f"/api/sessions/{sid}").json()["messages"][-1]
+    assert msg["status"] == "error" and msg["fix_session"] == failed["session_id"]
+    fix = _wait(lambda: (s := c.get(f"/api/sessions/{msg['fix_session']}").json())["status"] == "idle" and s)
+    assert fix["title"].startswith("Fixing: Send the invoices") and fix["messages"][0]["auto"]
+    asked = fix["messages"][0]["text"]
+    assert "Send the invoices" in asked and "mail server said no" in asked
+    assert fix["messages"][-1]["text"] == "Retried; it worked."
+    assert any(n["kind"] == "done" and n["session_id"] == fix["id"] for n in notices)
+
+
+def test_a_failed_fix_is_not_fixed_again(config_file, monkeypatch):
+    c, _ = _client(config_file, monkeypatch, [RuntimeError("first"), RuntimeError("second")])
+    _run(c, "Do the thing")
+    notices = _notices(c, 2)
+    time.sleep(0.3)
+    notices = c.get("/api/notices").json()
+    assert [n["kind"] for n in notices] == ["failed", "failed"]
+    assert len(c.get("/api/sessions").json()) == 2  # the job and one fix, no more
+    assert any(n["title"].startswith("Gabe couldn't fix") for n in notices)
+
+
+def test_no_fix_when_gabe_cannot_reach_its_model(config_file, monkeypatch):
+    class AuthenticationError(Exception):
+        pass
+
+    c, _ = _client(config_file, monkeypatch, [AuthenticationError("bad key")])
+    _run(c, "Do the thing")
+    [n] = _notices(c, 1)
+    assert n["kind"] == "failed" and "looking into it" not in n["body"]
+    assert len(c.get("/api/sessions").json()) == 1
+
+
+def test_agents_show_the_model_they_run_on(config_file):
+    import json as _json
+
+    from gabe.config import load_config
+    from gabe.team import Member, Team, save_team
+
+    cfg = load_config(config_file)
+    team_file = cfg.root / "team.yaml"
+    save_team(team_file, Team([Member(id="fixed", name="Fixed", model="sonnet"),
+                               Member(id="picked", name="Picked"), Member(id="fresh", name="Fresh")]))
+    import yaml
+
+    raw = yaml.safe_load(config_file.read_text())
+    raw.pop("delegates", None)
+    raw["team_file"] = "team.yaml"
+    config_file.write_text(yaml.safe_dump(raw))
+    cfg.data_dir.mkdir(parents=True, exist_ok=True)
+    (cfg.data_dir / "usage.jsonl").write_text(
+        _json.dumps({"agent": "Picked", "model": "claude-sonnet-5-5"}) + "\n"
+        + _json.dumps({"agent": "Picked", "model": "claude-haiku-5-5"}) + "\n")
+    rows = {a["id"]: a for a in TestClient(create_app(config_file)).get("/api/agents").json()["agents"]}
+    assert rows["chief"]["model_in_use"] == "opus" and rows["briefing"]["model_in_use"] == "opus"
+    assert rows["fixed"]["model_in_use"] == "sonnet"
+    assert rows["picked"]["model"] is None and rows["picked"]["model_in_use"] == "haiku"  # its last job
+    assert rows["fresh"]["model_in_use"] is None
+
+
 def _interrupted_session(config_file, **reply_extra):
     import json as _json
 
@@ -254,3 +378,10 @@ def test_missed_brief_is_caught_up(config_file):
     out.mkdir(parents=True, exist_ok=True)
     (out / "2026-11-24.md").write_text("done")
     assert not missed_brief(cfg, tue_9am)                                # already written
+
+
+def test_picked_up_work_is_announced_too(config_file, monkeypatch):
+    _interrupted_session(config_file)
+    c, _ = _client(config_file, monkeypatch, [StepResult("Done now.", [], "done")])
+    [n] = _notices(c, 1)
+    assert n["kind"] == "done" and n["session_id"] == "s1"

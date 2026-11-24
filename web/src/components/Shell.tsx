@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
-import { MessageCircleQuestion, Monitor, Moon, MoreHorizontal, ShieldCheck, Sun, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, MessageCircleQuestion, Monitor, Moon, MoreHorizontal, ShieldCheck, Sun, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
-import { api, type Approval, type Overview } from "../api";
+import { api, type Approval, type Notice, type Overview } from "../api";
 import { AREAS, type Area } from "../lib/areas";
 
 type Theme = "system" | "light" | "dark";
@@ -93,6 +93,44 @@ function NeedsYouWatcher() {
   );
 }
 
+/** Announces each job that finished or failed, once. A failure stays until dismissed. */
+function JobWatcher() {
+  const nav = useNavigate();
+  const loc = useLocation();
+  const seen = useRef<Set<string> | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
+  const { data } = useQuery({ queryKey: ["notices"], queryFn: () => api.get<Notice[]>("/api/notices"), refetchInterval: 2500, refetchIntervalInBackground: true });
+  useEffect(() => {
+    if (!data) return;
+    if (seen.current === null) { seen.current = new Set(data.map((n) => n.id)); return; }
+    const here = loc.pathname.startsWith("/ask/") ? loc.pathname.slice(5) : null;
+    const fresh = data.filter((n) => !seen.current!.has(n.id));
+    fresh.forEach((n) => seen.current!.add(n.id));
+    const show = fresh.filter((n) => !(n.kind === "done" && n.session_id === here));  // already looking at it
+    if (show.length) setNotice(show.find((n) => n.kind === "failed") ?? show[0]);
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!notice || notice.kind === "failed") return;
+    const t = setTimeout(() => setNotice(null), 8000);
+    return () => clearTimeout(t);
+  }, [notice]);
+  if (!notice) return null;
+  const failed = notice.kind === "failed";
+  return (
+    <div className="needs-banner" role={failed ? "alert" : "status"} data-area={failed ? "danger" : "tasks"}>
+      <span className="needs-banner-icon">{failed ? <AlertTriangle size={18} /> : <CheckCircle2 size={18} />}</span>
+      <div className="grow">
+        <strong>{notice.title}</strong>
+        {notice.body && <div className="needs-banner-text">{notice.body}</div>}
+      </div>
+      {notice.session_id && (
+        <button className="btn btn-primary btn-sm" onClick={() => { setNotice(null); nav(`/ask/${notice.session_id}`); }}>Open</button>
+      )}
+      <button className="btn btn-ghost btn-sm btn-icon" aria-label="Dismiss" onClick={() => setNotice(null)}><X size={16} /></button>
+    </div>
+  );
+}
+
 const PRIMARY: Area[] = ["ask", "today", "approvals", "tasks"];
 
 export function Shell({ children }: { children: ReactNode }) {
@@ -140,7 +178,10 @@ export function Shell({ children }: { children: ReactNode }) {
       </aside>
 
       <main className="main">
-        <NeedsYouWatcher />
+        <div className="banners">
+          <NeedsYouWatcher />
+          <JobWatcher />
+        </div>
         <div className="page">{children}</div>
       </main>
 

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Approval } from "../api";
 import { when } from "../lib/format";
+import { MODELS, modelLabel } from "../lib/agents";
 import { RISK, humanize, tool } from "../lib/tools";
 import { Chip, Field, useToast } from "./ui";
 
@@ -19,6 +20,7 @@ function NewMemberView({ args }: { args: Record<string, any> }) {
         <dt>Job</dt><dd>{args.job}</dd>
         <dt>Reports to</dt><dd>{args.reports_to ? humanize(String(args.reports_to)) : "Whoever asked"}</dd>
         <dt>Freedom</dt><dd>{FREEDOM[args.freedom ?? "standard"] ?? args.freedom}</dd>
+        <dt>Model</dt><dd>{modelLabel(args.model)}</dd>
       </dl>
       <div className="letter-body">{args.instructions}</div>
       {args.first_task && <p style={{ marginTop: 12 }}><strong>First task:</strong> {args.first_task}</p>}
@@ -39,6 +41,15 @@ function NewMemberEditor({ value, onChange }: { value: Record<string, any>; onCh
       <Field label="Freedom">
         <select className="select" value={value.freedom ?? "standard"} onChange={(e) => onChange({ ...value, freedom: e.target.value })}>
           {["look_only", "ask_first", "standard"].map((f) => <option key={f} value={f}>{FREEDOM[f]}</option>)}
+        </select>
+      </Field>
+      <Field label="Model">
+        <select className="select" value={value.model ?? ""} onChange={(e) => {
+          const { model: _old, ...rest } = value;
+          onChange(e.target.value ? { ...rest, model: e.target.value } : rest);
+        }}>
+          <option value="">Default</option>
+          {Object.entries(MODELS).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
         </select>
       </Field>
       <div className="field">

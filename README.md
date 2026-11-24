@@ -234,8 +234,20 @@ and first task, and can be edited), unless `policy.tools.add_team_member` says o
 can only give a new member actions it has itself and at most its own freedom (never "trusted"),
 and a "look only" bot can't add anyone. New members are for lasting roles, not single tasks:
 Gabe must say where it belongs (`reports_to`), a member that overlaps an existing one's area
-must go under that member, and every new member starts on a `first_task` straight away. Bots
-that have never done anything show as "Never used" on the Agents screen.
+must go under that member, and every new member starts on a `first_task` straight away. Gabe
+either fixes a new member's model or leaves it on Default, where it picks a model each time it
+delegates: Haiku for most work, Sonnet where judgement or careful writing matters, Opus only for
+high-priority, difficult work (Haiku if it doesn't say). A bot can't give a job or a new member a
+stronger model than its own. Bots that have never done anything show as "Never used" on the Agents screen.
+
+**Nothing fails silently.** Every job ends in a notice: done or failed, as a banner in the app
+and a system notification in the desktop app (click it to open the conversation). A bot that
+declines, gets cut off, runs out of steps, or reports it couldn't do the job (its last line is
+`JOB FAILED: <reason>`) has failed, not finished. A failed hand-off goes back
+to its manager as an error to deal with. When a job fails, Gabe gets it in a new "Fixing: …"
+conversation, works out why and retries, or asks you when only a person can fix it. That
+includes the daily brief and inbox sorting. A failed fix isn't handed back again, and there's no
+fix attempt when Gabe can't reach its own model (API key, connection, rate limit).
 
 Controls, and how they combine:
 
@@ -244,6 +256,7 @@ Controls, and how they combine:
 | Working / Paused | A paused member, and everyone under them, gets no work. |
 | Skills | The tools a member may use. Skills from a connection that isn't set up are skipped and flagged on the page. |
 | Freedom level | `look_only` (can't change or send anything), `ask_first` (asks before any change), `standard` (asks before contacting anyone outside), `trusted` (company rules only). It can only make a member **more** careful than `policy:`, never less. |
+| Model | `haiku`, `sonnet` or `opus`, mapped to model ids by `provider.tiers` (Claude 5.5 models by default). Left out (Default), its manager picks one for each job. |
 | Reports to | Only a member's manager can hand it work. Loops and chains deeper than 4 are refused. |
 
 Older configs with `delegates:` still work: every delegate reports straight to Gabe.

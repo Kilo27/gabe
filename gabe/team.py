@@ -10,6 +10,8 @@ Each member has:
 - instructions on how to do the job,
 - skills: which tools it may use,
 - a freedom level that can only make it *more* careful than company policy,
+- a model: haiku (most work), sonnet (judgement and writing) or opus (hard, high-stakes work).
+  Left out, its manager picks one for each job (haiku unless it says otherwise),
 - an on/off switch. A paused member and everyone under it are left out of the team.
 """
 
@@ -70,6 +72,10 @@ FREEDOM_LEVELS: dict[str, FreedomLevel] = {
 }
 DEFAULT_FREEDOM = "standard"
 
+# Model tiers, cheapest first. Config maps each to a model id (provider.tiers).
+MODEL_TIERS = ["haiku", "sonnet", "opus"]
+DEFAULT_TIER = "haiku"  # what a new bot gets unless the work calls for more
+
 
 class TeamError(ValueError):
     """A team change that would leave the team broken. The message is shown to the user."""
@@ -85,6 +91,7 @@ class Member:
     skills: list[str] | None = None  # None = every skill Gabe has
     freedom: str = DEFAULT_FREEDOM
     active: bool = True
+    model: str | None = None  # a MODEL_TIERS key; None = its manager picks one per job
 
     @property
     def freedom_level(self) -> FreedomLevel:
@@ -151,6 +158,8 @@ class Team:
                 raise TeamError("Every team member needs a name.")
             if m.freedom not in FREEDOM_LEVELS:
                 raise TeamError(f"{m.name}: unknown freedom level '{m.freedom}'.")
+            if m.model is not None and m.model not in MODEL_TIERS:
+                raise TeamError(f"{m.name}: unknown model '{m.model}' (use {', '.join(MODEL_TIERS)}).")
             if m.reports_to != CHIEF_ID and self.get(m.reports_to) is None:
                 raise TeamError(f"{m.name} reports to '{m.reports_to}', who isn't on the team.")
             if known_skills is not None and m.skills is not None:
@@ -197,6 +206,7 @@ _HEADER = """\
 # Edited from the Agents screen in the Gabe app; editing by hand is fine too.
 # reports_to: "chief" means the member reports straight to Gabe.
 # skills: omit to allow every tool Gabe has. freedom: look_only | ask_first | standard | trusted
+# model: haiku | sonnet | opus. Omit to let its manager pick one for each job.
 """
 
 
@@ -212,6 +222,7 @@ def member_from_dict(raw: dict[str, Any], fallback_id: str | None = None) -> Mem
         skills=None if skills is None else [str(s) for s in skills],
         freedom=str(freedom),
         active=bool(raw.get("active", True)),
+        model=None if raw.get("model") in (None, "") else str(raw["model"]).lower(),
     )
 
 
@@ -231,6 +242,8 @@ def save_team(path: Path, team: Team) -> None:
         d = m.to_dict()
         if d["skills"] is None:
             del d["skills"]
+        if d["model"] is None:
+            del d["model"]
         members.append(d)
     body = yaml.safe_dump({"members": members}, sort_keys=False, allow_unicode=True, width=100)
     tmp = path.with_suffix(path.suffix + ".tmp")

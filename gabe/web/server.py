@@ -230,11 +230,16 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
                 state.track("end", {"agent": name})
             return {"date": path.stem}
 
-        return state.start_job("brief", go)
+        return state.start_job("brief", go, label="Daily brief", request="Write today's daily brief.", fixable=True)
 
     @app.get("/api/jobs/{name}")
     def job(name: str):
         return state.job(name) or {"name": name, "status": "idle"}
+
+    @app.get("/api/notices")
+    def notices():
+        """Jobs that finished or failed, newest first."""
+        return list(reversed(state.notices.load().get("notices", [])))[:50]
 
     @app.post("/api/briefs/{date}/email")
     def email_brief(date: str):
@@ -626,7 +631,8 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
             triage_store.update(lambda d: d["items"].update(found))
             return {"sorted": len(found)}
 
-        return state.start_job("triage", go)
+        return state.start_job("triage", go, label="Inbox sorting", fixable=True,
+                               request="Sort the unread emails into needs a reply, FYI, or ignore.")
 
     # -- settings --------------------------------------------------------------
 
@@ -853,7 +859,7 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
             person_audit("edit_settings", {"section": "email", "action": "connect", "address": address})
             return {"address": address}
 
-        return state.start_job("gmail", go)
+        return state.start_job("gmail", go, label="Gmail connection")
 
     @app.post("/api/settings/gmail/disconnect")
     def gmail_disconnect(payload: dict = Body(default={})):
@@ -913,7 +919,7 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
     # -- agents ----------------------------------------------------------------
     # Gabe, the briefing writer and every team member (config/team.yaml), as one list.
 
-    from gabe.team import CHIEF_ID, DEFAULT_FREEDOM, FREEDOM_LEVELS, Member, TeamError, load_team, make_id, save_team
+    from gabe.team import CHIEF_ID, DEFAULT_FREEDOM, FREEDOM_LEVELS, MODEL_TIERS, Member, TeamError, load_team, make_id, save_team
 
     def team_path() -> Path:
         """The team file, created from legacy `delegates:` the first time the team is edited."""
@@ -955,20 +961,32 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
             "role": "Chief of staff. Hands your requests to the team.",
             "instructions": "", "tools": sorted(set((own if own is not None else all_tools) + [HIRE])) + (["delegate"] if team.reports(CHIEF_ID) else []),
             "paused": cfg.paused, "held": False, "rules": (cfg.policy or {}).get("tools") or {}, "reports_to": "you",
-            "freedom": None,
+            "freedom": None, "model": None,
         }, {
             "id": "briefing", "name": "Briefing writer", "log_name": f"{cfg.assistant_name} (briefing)", "kind": "briefing",
             "role": "Writes the daily brief. Read only.",
             "instructions": "", "tools": [t.name for t in reg.tools() if t.risk is Risk.READ and t.name != HIRE],
             "paused": BriefingSettings.from_config(cfg).paused, "held": False, "rules": {}, "reports_to": "chief",
-            "freedom": None,
+            "freedom": None, "model": None,
         }]
+        # The model each agent runs on: Gabe's own for Gabe and the briefing writer; a member's
+        # fixed model, or for one on Default (picked per job), whatever its last job ran on.
+        from gabe.providers import own_model, tier_models
+        from gabe.usage import read_events
+
+        tier_of = {v: k for k, v in tier_models(cfg.provider).items()}
+        last_model = {e.get("agent"): e.get("model") for e in read_events(cfg.data_dir / "usage.jsonl")}
+        gabe_model = own_model(cfg.provider)
+        for r in rows:
+            r["model_in_use"] = tier_of.get(gabe_model, gabe_model)
         for m in team.members:
+            used = last_model.get(m.name)
             rows.append({
+                "model_in_use": m.model or (tier_of.get(used, used) if used else None),
                 "id": m.id, "name": m.name, "log_name": m.name, "kind": "member", "role": m.job,
                 "instructions": m.instructions, "tools": [t for t in (m.skills or all_tools) if t in all_tools] + (["delegate"] if team.reports(m.id) else []),
                 "all_tools": m.skills is None, "paused": not m.active, "held": m.active and not team.is_working(m.id),
-                "rules": {}, "reports_to": m.reports_to, "freedom": m.freedom,
+                "rules": {}, "reports_to": m.reports_to, "freedom": m.freedom, "model": m.model,
             })
         for r in rows:
             p = pol
@@ -1081,13 +1099,16 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
         freedom = payload.get("freedom", existing.freedom if existing else DEFAULT_FREEDOM)
         if freedom not in FREEDOM_LEVELS:
             bad("Unknown freedom level.")
+        model = payload.get("model", existing.model if existing else None) or None
+        if model is not None and model not in MODEL_TIERS:
+            bad("Unknown model.")
         return Member(
             id=existing.id if existing else make_id(str(payload.get("id") or name), {m.id for m in team.members}),
             name=name,
             job=str(payload.get("description", payload.get("job", existing.job if existing else ""))).strip(),
             instructions=str(payload.get("instructions", existing.instructions if existing else "")).strip(),
             reports_to=str(payload.get("reports_to", existing.reports_to if existing else CHIEF_ID)) or CHIEF_ID,
-            skills=skills, freedom=freedom, active=existing.active if existing else True,
+            skills=skills, freedom=freedom, active=existing.active if existing else True, model=model,
         )
 
     @app.post("/api/agents")
@@ -1150,6 +1171,22 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
         cfg = state.config()
         tools = [{"name": t.name, "what": t.description.split(".")[0]} for t in registry().tools()]
         existing = [{"id": m.id, "name": m.name, "job": m.job, "reports_to": m.reports_to} for m in cfg.team().members]
+        ids = {x["id"] for x in existing}
+        # Choices the person made up front; left empty, Gabe decides.
+        want_manager = str(payload.get("reports_to") or "").strip() or None
+        if want_manager is not None and want_manager not in ids | {CHIEF_ID}:
+            bad("Pick someone on the team to report to.")
+        want_model = payload.get("model") or None
+        if want_model is not None and want_model not in MODEL_TIERS:
+            bad("Unknown model.")
+        freedom = payload.get("freedom") or DEFAULT_FREEDOM
+        if freedom not in FREEDOM_LEVELS:
+            bad("Unknown freedom level.")
+        fixed = []
+        if want_manager:
+            fixed.append(f"It reports to '{want_manager}' (already decided).")
+        if want_model:
+            fixed.append(f"It runs on {want_model} (already decided).")
 
         def go():
             prompt = (
@@ -1157,9 +1194,13 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
                 f"Role they asked for: {role}\n"
                 f"Current team (reports_to 'chief' means it reports to you): {json.dumps(existing)}\n"
                 f"Actions available (pick only what the role needs): {json.dumps(tools)}\n"
+                + "".join(f"{line}\n" for line in fixed) +
                 "Reply with ONLY a JSON object: {\"name\": short display name, \"description\": one line, "
                 "\"instructions\": 3-6 plain sentences on how it works, \"tools\": [action names], "
-                "\"reports_to\": \"chief\" or the id of the team member it should report to}."
+                "\"reports_to\": \"chief\" or the id of the team member it should report to, "
+                "\"model\": \"default\" to pick a model for each job (best for most roles), or fix one when every "
+                "job needs the same: \"haiku\", \"sonnet\" for judgement or careful writing, \"opus\" only for "
+                "high-priority, genuinely difficult work}."
             )
             text = build_briefer(cfg).send(prompt)
             m = re.search(r"\{.*\}", text, re.S)
@@ -1167,14 +1208,15 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
                 raise RuntimeError(f"{cfg.assistant_name} didn't come back with a proposal. Try describing the role differently.")
             p = json.loads(m.group(0))
             known = set(team_skills(state.config()))
-            ids = {x["id"] for x in existing}
-            reports_to = str(p.get("reports_to") or CHIEF_ID)
+            reports_to = want_manager or str(p.get("reports_to") or CHIEF_ID)
+            model = want_model or (p.get("model") if p.get("model") in MODEL_TIERS else None)
             return {"role": role, "name": str(p.get("name", "")).strip(), "description": str(p.get("description", "")),
                     "instructions": str(p.get("instructions", "")),
                     "tools": [t for t in p.get("tools") or [] if t in known],
-                    "reports_to": reports_to if reports_to in ids else CHIEF_ID, "freedom": DEFAULT_FREEDOM}
+                    "reports_to": reports_to if reports_to in ids else CHIEF_ID, "freedom": freedom,
+                    "model": model}
 
-        return state.start_job("agent_request", go)
+        return state.start_job("agent_request", go, label="New agent design")
 
     @app.post("/api/agents/request/dismiss")
     def dismiss_request():

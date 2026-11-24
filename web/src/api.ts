@@ -103,7 +103,8 @@ export type ActivityItem =
   | { kind: "approval"; approval_id: string; tool: string; ts: string }
   | { kind: "resumed"; ts: string };
 
-export type Message = { task?: { id: string; title: string }; id: string; role: "user" | "assistant"; text: string; ts: string; status: "done" | "working" | "waiting" | "error" | "interrupted"; activity: ActivityItem[] };
+export type Notice = { id: string; kind: "done" | "failed"; title: string; body: string; session_id: string | null; agent: string | null; ts: string };
+export type Message = { task?: { id: string; title: string }; auto?: boolean; fix_session?: string; id: string; role: "user" | "assistant"; text: string; ts: string; status: "done" | "working" | "waiting" | "error" | "interrupted"; activity: ActivityItem[] };
 export type Session = { agent?: string | null; id: string; title: string; created: string; updated: string; status: "idle" | "running"; messages: Message[]; memory_reset?: boolean };
 export type SessionSummary = { agent?: string | null; id: string; title: string; updated: string; status: string; count: number; preview: string };
 
@@ -136,12 +137,12 @@ export type AgentStatus = "idle" | "working" | "waiting" | "paused";
 export type AgentNow = { kind: "tool"; tool: string; input: any; outcome: string; ts: string } | { kind: "thought" | "task"; text: string; ts: string };
 export type Agent = {
   id: string; name: string; log_name: string; kind: "chief" | "briefing" | "member"; role: string; instructions: string;
-  tools: string[]; all_tools?: boolean; paused: boolean; held: boolean; freedom: string | null;
+  tools: string[]; all_tools?: boolean; paused: boolean; held: boolean; freedom: string | null; model: string | null; model_in_use: string | null;
   rules: Record<string, Decision>; decisions: Record<string, Decision>;
   reports_to: string; status: AgentStatus; now: AgentNow | null; handed_by: string | null; session: string | null;
   waiting: string[]; asking?: boolean; never_used?: boolean; today: { done: number; problems: number; total: number };
 };
 export type TimelineItem = { ts: string; minute: number; tool: string; outcome: string; input: any };
-export type Proposal = { role: string; name: string; description: string; instructions: string; tools: string[]; reports_to: string; freedom: string };
+export type Proposal = { role: string; name: string; description: string; instructions: string; tools: string[]; reports_to: string; freedom: string; model: string | null };
 export type FreedomLevel = { key: string; label: string; explanation: string };
 export type AgentsData = { day: string; today: string; agents: Agent[]; timeline: Record<string, TimelineItem[]>; request: (Job & { result?: Proposal }) | null; freedom_levels: FreedomLevel[] };

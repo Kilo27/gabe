@@ -8,6 +8,7 @@ local server; nothing else in Gabe changes.
 from __future__ import annotations
 
 import json
+import copy
 from typing import Any
 
 import httpx
@@ -41,6 +42,13 @@ class OpenAICompatibleProvider(Provider):
 
     def start(self, system: str, tools: list[Tool]) -> Conversation:
         return OpenAICompatibleConversation(self, system, tools)
+
+    def with_model(self, model: str) -> "OpenAICompatibleProvider":
+        if model == self.model:
+            return self
+        other = copy.copy(self)  # shares the HTTP client
+        other.model = model
+        return other
 
 
 class OpenAICompatibleConversation(Conversation):
