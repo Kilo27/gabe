@@ -128,8 +128,18 @@ def _auth(cfg, args) -> int:
         return 1
     ctx = IntegrationContext("email", spec.settings, cfg.data_dir, cfg)
     creds_path, token_path = gmail_paths(ctx)
+    from googleapiclient.errors import HttpError
+
     creds = load_credentials(creds_path, token_path, interactive=True)
-    profile = build_service(creds).users().getProfile(userId="me").execute()
+    try:
+        profile = build_service(creds).users().getProfile(userId="me").execute()
+    except HttpError as e:
+        print(f"Signed in and saved the token to {token_path}, but Gmail rejected the test call:", file=sys.stderr)
+        print(f"  {e.reason}", file=sys.stderr)
+        if e.status_code == 403 and "has not been used" in str(e.reason):
+            print("Enable the Gmail API in your Google Cloud project (APIs & Services → Library → Gmail API),", file=sys.stderr)
+            print("wait a minute or two, then run `gabe auth gmail` again.", file=sys.stderr)
+        return 1
     print(f"Gmail authorised for {profile['emailAddress']}. Token saved to {token_path}.")
     return 0
 
