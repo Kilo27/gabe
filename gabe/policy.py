@@ -26,8 +26,19 @@ def stricter(a: Decision, b: Decision) -> Decision:
     return a if _STRICTNESS[a] >= _STRICTNESS[b] else b
 
 
-# Called when a decision is ASK: return True to approve the call.
-Approver = Callable[[Tool, dict[str, Any]], bool]
+@dataclass
+class Declined:
+    """A refusal that carries a note back to the model. Falsy, like False."""
+
+    note: str = ""
+
+    def __bool__(self) -> bool:
+        return False
+
+
+# Called when a decision is ASK: return True to approve the call, or False / Declined(note)
+# to refuse it. An approver may edit `args` in place before approving (edit-then-approve).
+Approver = Callable[[Tool, dict[str, Any]], "bool | Declined"]
 
 
 def deny_all(tool: Tool, args: dict[str, Any]) -> bool:
@@ -53,10 +64,13 @@ class Policy:
     def decide(self, tool: Tool) -> Decision:
         if tool.name in self.tool_overrides:
             decision = self.tool_overrides[tool.name]
-        elif tool.integration in self.integration_overrides:
-            decision = self.integration_overrides[tool.integration]
         else:
-            decision = self.defaults.get(tool.risk, Decision.ASK)
+            if tool.integration in self.integration_overrides:
+                decision = self.integration_overrides[tool.integration]
+            else:
+                decision = self.defaults.get(tool.risk, Decision.ASK)
+            if tool.ask_first:
+                decision = stricter(decision, Decision.ASK)
         return stricter(decision, self.ceiling.get(tool.risk, Decision.ALLOW))
 
     def restricted(self, ceiling: dict[Risk, Decision]) -> "Policy":

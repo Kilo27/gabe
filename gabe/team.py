@@ -2,8 +2,8 @@
 
 Gabe (the chief of staff) sits at the top. Every other team member reports to
 Gabe or to another member, and can hand work down to its own direct reports.
-The team lives in a small YAML file (`team_file` in config) that the Team page
-of `gabe ui` edits, so it can be changed without touching code.
+The team lives in a small YAML file (`team_file` in config) that the Agents
+screen in the app edits, so it can be changed without touching code.
 
 Each member has:
 - a name and a one-line job description (its manager uses this to pick who to ask),
@@ -170,7 +170,7 @@ class Team:
                     f"{m.name} would be {len(seen)} levels below the chief of staff; the limit is {MAX_DEPTH}."
                 )
 
-    # ---- edits (used by the Team page) ------------------------------------------
+    # ---- edits (used by the Agents screen) ------------------------------------------
     def upsert(self, member: Member, known_skills: set[str] | None = None) -> None:
         updated = Team([member if m.id == member.id else m for m in self.members])
         if self.get(member.id) is None:
@@ -194,7 +194,7 @@ class Team:
 
 _HEADER = """\
 # Gabe's team: who Gabe can hand work to, and who they can hand work to.
-# Edited from the Team page (`gabe ui`); editing by hand is fine too.
+# Edited from the Agents screen in the Gabe app; editing by hand is fine too.
 # reports_to: "chief" means the member reports straight to Gabe.
 # skills: omit to allow every tool Gabe has. freedom: look_only | ask_first | standard | trusted
 """
@@ -236,3 +236,27 @@ def save_team(path: Path, team: Team) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(_HEADER + "\n" + body)
     tmp.replace(path)  # atomic: a crash never leaves a half-written team file
+
+
+def ensure_team_file(cfg) -> Path:
+    """The config's team file. Older configs with `delegates:` get one created from them
+    (and config switched to `team_file:`) the first time the team is changed."""
+    if cfg.team_file is not None:
+        return cfg.team_file
+    if cfg.path is None:
+        raise TeamError("This setup has no config file to save the team to.")
+    path = cfg.root / "team.yaml"
+    if not path.exists():
+        save_team(path, cfg.team())
+    raw = yaml.safe_load(cfg.path.read_text()) or {}
+    backup = cfg.path.with_name(cfg.path.name + ".bak")
+    if not backup.exists():
+        backup.write_text(cfg.path.read_text())
+    raw.pop("delegates", None)
+    raw["team_file"] = "team.yaml"
+    cfg.path.write_text(yaml.safe_dump(raw, sort_keys=False, allow_unicode=True, width=100))
+    cfg.team_file, cfg.delegates = path, []
+    return path
+
+
+FREEDOM_ORDER = ["look_only", "ask_first", "standard", "trusted"]

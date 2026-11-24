@@ -10,3 +10,9 @@ build/
 *client_secret*.json
 *token*.json
 .DS_Store
+web/node_modules/
+gabe/web/static/
+.claude/launch.json
+packaging/build/
+packaging/google_oauth_client.json
+web/*.tsbuildinfo

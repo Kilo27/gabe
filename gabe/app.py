@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Callable
+
 from gabe.agent import Agent, EventHandler, _ignore
 from gabe.audit import AuditLog
 from gabe.config import Config
@@ -9,9 +11,78 @@ from gabe.integrations import load_integrations
 from gabe.policy import Approver, Policy, deny_all
 from gabe.prompts import chief_of_staff_prompt, delegate_prompt
 from gabe.providers import Provider, make_provider
-from gabe.team import CHIEF_ID, Member, Team
+from gabe.team import (CHIEF_ID, DEFAULT_FREEDOM, FREEDOM_ORDER, Member, Team, TeamError,
+                       ensure_team_file, load_team, make_id, save_team)
 from gabe.tools.registry import Risk, Tool, ToolRegistry, schema
 from gabe.usage import UsageLog, resolve_user
+
+
+HIRE = "add_team_member"  # the action that creates a new bot; a skill like any other
+
+
+def team_skills(cfg: Config) -> list[str]:
+    """Every action a team member can be given."""
+    return sorted([t.name for t in base_registry(cfg).tools()] + [HIRE])
+
+
+_GENERIC = {"helper", "assistant", "agent", "team", "member", "specialist", "lead", "manager", "keeper",
+            "writer", "mapper", "scoper", "owner", "with", "that", "from", "into", "their", "they", "them",
+            "about", "which", "what", "keeps", "handles", "work", "tasks", "project", "using", "including",
+            "plans", "makes", "sure", "each", "every", "other", "company"}
+
+
+def _words(text: str) -> set[str]:
+    import re
+
+    return {w for w in re.findall(r"[a-z]+", text.lower()) if len(w) >= 4 and w not in _GENERIC}
+
+
+def overlaps(name: str, job: str, member: Member) -> bool:
+    """Rough check that a proposed member covers the same ground as an existing one."""
+    a, b = _words(name), _words(member.name)
+    if a and b and len(a & b) / min(len(a), len(b)) >= 0.5:
+        return True
+    ja, jb = _words(f"{name} {job}"), _words(f"{member.name} {member.job}")
+    return bool(ja and jb) and len(ja & jb) / len(ja | jb) >= 0.35
+
+
+# Called when an agent asks the user something: (agent name, question, choices) -> the answer.
+Asker = Callable[[str, str, list], str]
+
+NOBODY_TO_ASK = ("Nobody is available to answer right now. Make a reasonable assumption, say what you "
+                 "assumed, and carry on.")
+
+
+def no_one_to_ask(agent: str, question: str, choices: list) -> str:
+    """Asker for unattended runs."""
+    return NOBODY_TO_ASK
+
+
+def ask_tool(name: str, asker: Asker) -> Tool:
+    """`ask_user`: put a question to the person in charge and wait for their answer."""
+    def ask_user(question: str, choices: list | None = None) -> str:
+        answer = asker(name, question.strip(), [str(c) for c in (choices or []) if str(c).strip()])
+        return answer if answer.strip() else "(The user replied without an answer.)"
+
+    return Tool(
+        name="ask_user",
+        description=(
+            "Ask the user a question and wait for their answer. They are notified. Use it only when "
+            "you're blocked on something only a person can decide or tell you; one clear question, "
+            "with choices if there are obvious options."
+        ),
+        input_schema=schema(
+            {
+                "question": {"type": "string", "description": "The question, complete enough to answer cold."},
+                "choices": {"type": "array", "items": {"type": "string"},
+                            "description": "Optional quick answers to offer (they can still type their own)."},
+            },
+            required=["question"],
+        ),
+        handler=ask_user,
+        risk=Risk.READ,
+        integration="people",
+    )
 
 
 def base_registry(cfg: Config) -> ToolRegistry:
@@ -50,11 +121,16 @@ def build_gabe(
     team: Team | None = None,
     user: str | None = None,
     task: str = "chat",
+    member: str | None = None,
+    asker: Asker = no_one_to_ask,
 ) -> Agent:
+    """Gabe, the chief of staff. With `member`, that team member on its own (a job given to
+    it directly), still able to hand work to its own reports."""
     provider = provider or make_provider(cfg.provider)
     policy = Policy.from_config(cfg.policy)
     audit = AuditLog(cfg.data_dir / "audit.jsonl")
     tools = base_registry(cfg)
+    persist = team is None  # a team passed in (tests, previews) is changed in memory only
     team = team if team is not None else cfg.team()
     available = {t.name for t in tools.tools()}
     usage = UsageLog(cfg.data_dir / "usage.jsonl")
@@ -63,17 +139,141 @@ def build_gabe(
 
     def skills_of(member: Member) -> list[str] | None:
         # Skills whose integration isn't set up right now (e.g. email in outbox mode) are skipped,
-        # not fatal; the Team page flags them as unavailable.
+        # not fatal; they're simply left out.
         return None if member.skills is None else [s for s in member.skills if s in available]
 
-    def with_delegation(registry: ToolRegistry, manager_id: str, path: tuple[str, ...]) -> ToolRegistry:
-        """Add a `delegate` tool that reaches only this agent's own active direct reports."""
-        reports = {m.id: m for m in team.reports(manager_id)}
-        if not reports:
+    def can_hire(member: Member | None) -> bool:
+        return member is None or member.skills is None or HIRE in member.skills
+
+    def branch(manager_id: str) -> set[str]:
+        """Everyone under a manager, at any depth."""
+        out, todo = set(), [manager_id]
+        while todo:
+            for m in team.reports(todo.pop(), active_only=False):
+                out.add(m.id)
+                todo.append(m.id)
+        return out
+
+    def hire_tool(creator: Member | None, path: tuple[str, ...]) -> Tool:
+        """`add_team_member` for one agent. It can only add bots under itself or under someone in
+        its own branch, give them actions it has itself, and no more freedom than it has."""
+        creator_id = creator.id if creator else CHIEF_ID
+        if creator is None or creator.skills is None:
+            grantable = available | {HIRE}
+        else:
+            grantable = set(creator.skills) & (available | {HIRE})
+        cap = FREEDOM_ORDER.index("standard" if creator is None else min(
+            creator.freedom, "standard", key=FREEDOM_ORDER.index))
+        levels = FREEDOM_ORDER[: cap + 1]
+
+        def where(manager: str) -> tuple[str, ...]:
+            """The chain of names from this agent down to `manager` (for events and the audit)."""
+            chain = [m.name for m in reversed(team.chain(manager)) if m.id not in team_ids_above(creator_id)]
+            return (*path, *chain) if manager != creator_id else path
+
+        def team_ids_above(member_id: str) -> set[str]:
+            return {m.id for m in team.chain(member_id)} if member_id != CHIEF_ID else set()
+
+        def add_team_member(name: str, job: str, instructions: str, skills: list[str], reports_to: str,
+                            why: str, first_task: str, freedom: str = DEFAULT_FREEDOM) -> str:
+            manager = reports_to.strip() or creator_id
+            # Refusals raise, so they show as failed (not done) in the activity log.
+            if manager != creator_id and manager not in branch(creator_id):
+                raise ValueError(f"You can only add team members under yourself or someone in your team "
+                                 f"({', '.join(sorted(branch(creator_id))) or 'nobody yet'}). Not added.")
+            extra = sorted(set(skills) - grantable)
+            if extra:
+                raise ValueError(f"You can't give actions you don't have yourself: {', '.join(extra)}. Not added.")
+            if freedom not in levels:
+                raise ValueError(f"Freedom must be one of: {', '.join(levels)}. Not added.")
+            if not first_task.strip():
+                raise ValueError("Give it a first_task to start on now, so it doesn't sit idle. Not added.")
+            # Work that belongs to an existing member's area goes under that member, not beside it.
+            near = [m for m in team.members if m.active and overlaps(name, job, m)]
+            outside = [m for m in near if manager != m.id and manager not in branch(m.id)]
+            if outside:
+                m = outside[0]
+                raise ValueError(
+                    f"This overlaps {m.name} ({m.id}: {m.job}). Give {m.name} the work with delegate, "
+                    f"or add the new member under them (reports_to: {m.id}). Not added.")
+            new = Member(id="", name=name.strip(), job=job.strip(), instructions=instructions.strip(),
+                         reports_to=manager, skills=sorted(set(skills)), freedom=freedom)
+            try:
+                if persist:
+                    file = ensure_team_file(cfg)
+                    current = load_team(file)
+                else:
+                    current = Team(list(team.members))
+                new.id = make_id(new.name, {m.id for m in current.members})
+                # The new member's actions were checked above; others may list actions from a
+                # connection that isn't set up right now, which is allowed.
+                current.upsert(new)
+                if persist:
+                    save_team(file, current)
+            except TeamError as e:
+                raise ValueError(f"Not added: {e}") from e
+            team.members[:] = current.members
+            on_event("hired", {"agent": path[-1], "path": list(path), "member": new.id, "name": new.name,
+                               "reports_to": manager})
+            boss = "you" if manager == creator_id else (team.get(manager).name if team.get(manager) else manager)
+
+            # It starts work straight away, handed down from its manager, so it never sits idle.
+            mpath = where(manager)
+            on_event("delegate", {"agent": mpath[-1], "path": list(mpath), "to": new.id,
+                                  "to_name": new.name, "task": first_task})
+            report = build_member(new, mpath).send(first_task)
+            on_event("report", {"agent": new.name, "path": [*mpath, new.name], "text": report})
+            return (f"Added {new.name} (id {new.id}), reporting to {boss}. It started on its first task "
+                    f"and reported back:\n{report}")
+
+        roster = "\n".join(f"- {m.id}: {m.name} (reports to {m.reports_to}). {m.job}"
+                           for m in team.members if m.active and (creator is None or m.id in branch(creator_id)))
+        return Tool(
+            name=HIRE,
+            description=(
+                "Create a new AI assistant for a lasting ROLE that keeps getting work and that no current "
+                "member covers. Not for a single task or a project's to-do list: for those, delegate to the "
+                "closest existing member. Put it under the member whose area the work belongs to (e.g. "
+                "email work under whoever does communications); report to yourself only when it starts a "
+                "genuinely new area. Write instructions it can act on alone (it can ask the user with "
+                "ask_user only when truly blocked). It starts on first_task straight away. A person "
+                "approves it first.\nCurrent team (id: name (reports to). job):\n" + (roster or "- nobody yet")
+            ),
+            input_schema=schema(
+                {
+                    "name": {"type": "string", "description": "Role name, e.g. 'Invoice chaser'. A role, not a task."},
+                    "job": {"type": "string", "description": "One line: the ongoing work it owns. Managers use this to pick it."},
+                    "instructions": {"type": "string", "description": "How it does the job, in plain sentences it can follow alone."},
+                    "skills": {"type": "array", "items": {"type": "string"},
+                               "description": f"Actions it may use, from: {', '.join(sorted(grantable))}."},
+                    "reports_to": {"type": "string",
+                                   "description": f"Id of the member whose area this belongs to, or '{creator_id}' for a new area."},
+                    "why": {"type": "string", "description": "For the person approving: why this needs a new member, and why it sits there."},
+                    "first_task": {"type": "string", "description": "The work it should start on now, with every detail it needs."},
+                    "freedom": {"type": "string", "enum": levels,
+                                "description": "look_only = can't change anything; ask_first = asks before changes; standard = asks before contacting anyone outside."},
+                },
+                required=["name", "job", "instructions", "skills", "reports_to", "why", "first_task"],
+            ),
+            handler=add_team_member,
+            risk=Risk.WRITE,
+            integration="team",
+            ask_first=True,  # the people in charge approve every new bot
+        )
+
+    def with_delegation(registry: ToolRegistry, manager_id: str, path: tuple[str, ...],
+                        hires: bool = False) -> ToolRegistry:
+        """Add a `delegate` tool that reaches this agent's own active direct reports (looked up
+        when called, so someone added mid-run can be given work straight away)."""
+        reports = team.reports(manager_id)
+        if not reports and not hires:
             return registry
 
         def delegate(specialist: str, task: str) -> str:
-            member = reports[specialist]
+            member = team.get(specialist)
+            if member is None or member.reports_to != manager_id or not team.is_working(member.id):
+                ids = ", ".join(m.id for m in team.reports(manager_id)) or "nobody yet"
+                return f"'{specialist}' isn't one of your active direct reports ({ids})."
             on_event("delegate", {"agent": path[-1], "path": list(path), "to": member.id,
                                   "to_name": member.name, "task": task})
             report = build_member(member, path).send(task)
@@ -89,8 +289,9 @@ def build_gabe(
                 ),
                 input_schema=schema(
                     {
-                        "specialist": {"type": "string", "enum": sorted(reports),
-                                       "description": "Id of the team member to hand the task to."},
+                        "specialist": {"type": "string",
+                                       "description": "Id of the team member to hand the task to"
+                                       + (f", e.g. {', '.join(m.id for m in reports)}." if reports else ".")},
                         "task": {"type": "string", "description": "Complete instructions and context."},
                     }
                 ),
@@ -105,11 +306,16 @@ def build_gabe(
     def build_member(member: Member, manager_path: tuple[str, ...]) -> Agent:
         path = (*manager_path, member.name)
         manager = manager_path[-1]
+        hires = can_hire(member)
+        registry = tools.subset(skills_of(member))
+        registry.register(ask_tool(member.name, asker))
+        if hires:
+            registry.register(hire_tool(member, path))
         return Agent(
             name=member.name,
             provider=provider,
-            system=delegate_prompt(cfg, member, manager, team.reports(member.id)),
-            registry=with_delegation(tools.subset(skills_of(member)), member.id, path),
+            system=delegate_prompt(cfg, member, manager, team.reports(member.id), can_hire=hires),
+            registry=with_delegation(registry, member.id, path, hires),
             policy=policy.restricted(member.freedom_level.ceiling),
             approver=approver,
             audit=audit,
@@ -121,12 +327,20 @@ def build_gabe(
         )
 
     top = (cfg.assistant_name,)
+    if member is not None:
+        m = team.get(member)
+        if m is None or not team.is_working(member):
+            raise ValueError(f"'{member}' isn't an active member of the team.")
+        return build_member(m, ("the user",))
     chief_reports = team.reports(CHIEF_ID)
+    registry = tools.subset(chief_tools(cfg, team, available))
+    registry.register(ask_tool(cfg.assistant_name, asker))
+    registry.register(hire_tool(None, top))  # Gabe can always grow the team, with a person's OK
     return Agent(
         name=cfg.assistant_name,
         provider=provider,
-        system=chief_of_staff_prompt(cfg, chief_reports, dispatcher=bool(chief_reports)),
-        registry=with_delegation(tools.subset(chief_tools(cfg, team, available)), CHIEF_ID, top),
+        system=chief_of_staff_prompt(cfg, chief_reports, dispatcher=bool(chief_reports), can_hire=True),
+        registry=with_delegation(registry, CHIEF_ID, top, hires=True),
         policy=policy,
         approver=approver,
         audit=audit,

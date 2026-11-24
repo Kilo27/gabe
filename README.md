@@ -23,10 +23,46 @@ gabe -m "Give me the weekly brief"  # one-shot
 gabe brief                          # today's daily briefing (saved to data/briefings/)
 gabe schedule                       # run the briefing every weekday at the configured time
 gabe auth gmail                     # connect Gmail (see docs/GMAIL_SETUP.md)
-gabe ui                             # open the Team page in your browser
 gabe --unattended -m "..."          # refuses anything that needs approval
 pytest                              # tests use a scripted provider, no API calls
 ```
+
+## Desktop app (macOS; Windows next)
+
+Gabe ships as a desktop app, not a website. It runs its own local service inside a native
+window; that service only accepts calls from its own window (a fresh token each launch).
+
+```bash
+pip install -e '.[desktop,gmail,build]'
+packaging/macos/build.sh        # → dist/macos/Gabe.app and Gabe.dmg (needs Node, ImageMagick)
+gabe app                        # run it from source instead
+```
+
+- Settings and data live in `~/Library/Application Support/Gabe/` (`config/`, `data/`); the
+  first launch copies a starter config there. `GABE_HOME` overrides the location.
+- The Anthropic API key is entered in Settings → AI model and kept in the macOS Keychain.
+- Gmail: Settings → Email → Choose file… (the Google OAuth client JSON), then Connect Gmail.
+- The daily brief is written on schedule while the app is open.
+- Attach a task when you give a bot a job (the paperclip on an agent card or in a
+  conversation), or use "Give to a bot" on a task. The bot gets the task's details and is
+  asked to keep it updated, and the task shows which bot has it.
+- When Gabe or a bot asks you something (`ask_user`) or needs an approval, you get a macOS
+  notification (click it to answer), a Dock badge with the count, and a banner in the app.
+  The run waits for your answer. The first time, macOS asks to allow Gabe's notifications.
+- After installing a new build, macOS may ask once to let Gabe read its key from the
+  Keychain ("Always Allow"). The window opens regardless; Gabe can't reach the AI until then.
+- The build is ad-hoc signed, so other Macs show a Gatekeeper warning. For distribution set
+  `SIGN_ID` to a Developer ID certificate and notarize the .dmg.
+
+Home is **Agents**: a live map of who hands work to whom, each agent's actions today on a
+timeline, and controls per agent (give it a job, pause/resume, set what it may do, approve
+its requests). "Request an agent" has Gabe propose a new specialist for a role; you edit and
+approve it before it's added. Other screens: Today, Approvals, Tasks, Inbox, Notes, Activity,
+Settings.
+
+For UI work: `gabe web --no-open` and `cd web && npm run dev` (proxies `/api`), against the
+repo's `config/gabe.yaml`. Settings edits that file in place and keeps the original as
+`gabe.yaml.bak` (YAML comments are not preserved).
 
 ## How it adapts to a company
 
@@ -36,7 +72,7 @@ pytest                              # tests use a scripted provider, no API call
 | Playbooks | `config/playbooks/*.md` | How *this* company does things (SOPs Gabe follows) |
 | Integrations | `integrations:` | Which systems Gabe can touch; custom ones load by module path |
 | Policy | `policy:` | What runs unattended, what needs a human, what's blocked |
-| Team | `team_file:` (`config/team.yaml`) | A hierarchy of assistants under Gabe, each with a job, skills and freedom level. Edited from `gabe ui` |
+| Team | `team_file:` (`config/team.yaml`) | A hierarchy of assistants under Gabe, each with a job, skills and freedom level. Edited on the Agents screen |
 | Model | `provider:` | Anthropic API now; local OpenAI-compatible server (GLM) later |
 
 ### Writing an integration
@@ -80,7 +116,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design.
 - `core`: current time in the company timezone
 - `memory`: remember / recall / forget durable notes
 - `tasks`: create, list and update tasks with owners and due dates
-- `email`: Gmail / Google Workspace (`search_email`, `read_email`, `draft_email`,
+- `email`: Gmail / Google Workspace, one or more mailboxes (`settings.accounts`; add them in the web app) (`search_email`, `read_email`, `draft_email`,
   `send_email`, `mark_email_read`), or an `outbox` backend that saves outgoing mail to disk without delivering it. See [docs/GMAIL_SETUP.md](docs/GMAIL_SETUP.md).
 
 ## Daily briefing
@@ -119,17 +155,20 @@ member whose job fits. It keeps only `assistant.own_tools` (default: checking th
 looking up notes) so it can brief people well, plus any action that no active team member
 can do. With no team, Gabe does everything itself. The daily brief run is always hands-on.
 
-`gabe ui` opens a local page (http://127.0.0.1:8765, this machine only) written for
-people who don't read code:
+The **Agents** screen in the app is the org chart: change anyone's name, job, instructions,
+manager, skills and freedom level, pause or remove them, give them a job directly, or ask
+Gabe to propose a new member. Changes save to `config/team.yaml`.
 
-- **Team**: the org chart. Click anyone to see a plain-English summary ("reports to
-  Gabe, can do 3 things on their own and will ask you before 1"), and change their
-  name, job, instructions, manager, skills and freedom level. You can also pause or
-  remove them. Changes save to `config/team.yaml`.
-- **Ask Gabe**: send a request and watch each hand-off live ("Gabe asked Operations
-  lead to help", "Scheduler created a task..."). Actions that need a person show up as
-  cards with **Approve** / **Decline**, and the run waits until you answer.
-- **What happened**: the audit log in plain English, with the chain of who asked whom.
+**Bots can add bots.** Gabe has an `add_team_member` action: when work keeps coming up that
+nobody fits, it proposes a new member under itself or under anyone on the team. Any member
+given that action (in its skills) can add members within its own branch. A person approves
+every new member first (the approval card shows why, the name, job, manager, freedom, actions
+and first task, and can be edited), unless `policy.tools.add_team_member` says otherwise. A bot
+can only give a new member actions it has itself and at most its own freedom (never "trusted"),
+and a "look only" bot can't add anyone. New members are for lasting roles, not single tasks:
+Gabe must say where it belongs (`reports_to`), a member that overlaps an existing one's area
+must go under that member, and every new member starts on a `first_task` straight away. Bots
+that have never done anything show as "Never used" on the Agents screen.
 
 Controls, and how they combine:
 
@@ -141,7 +180,7 @@ Controls, and how they combine:
 | Reports to | Only a member's manager can hand it work. Loops and chains deeper than 4 are refused. |
 
 Older configs with `delegates:` still work: every delegate reports straight to Gabe.
-Move them into a team file to edit them from the page.
+The first edit on the Agents screen moves them into `team.yaml`.
 
 ## Planned
 

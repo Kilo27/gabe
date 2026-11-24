@@ -1,5 +1,5 @@
 # Gabe's team: who Gabe can hand work to, and who they can hand work to.
-# Edited from the Team page (`gabe ui`); editing by hand is fine too.
+# Edited from the Agents screen in the Gabe app; editing by hand is fine too.
 # reports_to: "chief" means the member reports straight to Gabe.
 # skills: omit to allow every tool Gabe has. freedom: look_only | ask_first | standard | trusted
 

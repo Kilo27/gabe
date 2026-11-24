@@ -1,9 +1,8 @@
 # Gabe UI: plan
 
-Status: **plan only**, not built yet. Today Gabe runs from the terminal
-(`gabe`, `gabe brief`, `gabe schedule`). A first local page, `gabe ui`, covers the
-team (Settings → Specialists), live runs with in-page approvals, and a plain-English
-activity view; see the README. It is single-user and keeps approvals in memory.
+Status: **built** (`gabe web`), on the JSON-file storage. Not done yet: Postgres, sign-in
+and roles, persisting Gabe's working memory of a chat across restarts (an approval still
+waiting when the server stops expires; Gabe is told no).
 
 ## Who uses it
 

@@ -70,5 +70,5 @@ briefing:
   # output_dir: ../data/briefings
 
 # Gabe's team: the assistants Gabe can hand work to, and who they hand work to.
-# Edit it from the Team page (`gabe ui`) or by hand. See config/team.yaml.
+# Edit it on the Agents screen in the Gabe app, or by hand. See config/team.yaml.
 team_file: team.yaml

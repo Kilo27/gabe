@@ -64,13 +64,10 @@ Paused members drop out with their whole branch.
 covers (`team_coverage`) stay with Gabe, so pausing a branch never strands an action. The
 briefing agent is built separately with the hands-on prompt and read-only tools.
 
-**Team page.** `gabe ui` (`gabe/ui/server.py`) is a standard-library HTTP server bound
-to 127.0.0.1 serving one static page. It edits the team file, runs requests in a
-background thread, and turns the blocking `Approver` into a wait on a
-`threading.Event` that the page's Approve/Decline buttons set (30-minute timeout =
-declined). It rejects other `Host` headers and cross-origin or non-JSON writes, so other
-websites can't drive it. Approvals live in memory: restarting the server drops a
-pending one, which is what the UI plan's persistent approvals will fix.
+**Desktop app.** The team is edited and watched from the app's Agents screen
+(`gabe/web/server.py`, `/api/agents`); see the README's Desktop app section. Approvals block
+the run's thread until someone decides in the app (approve, edit then approve, or decline
+with a note); ones still waiting when the app quits expire and Gabe is told no.
 
 ## Roadmap
 

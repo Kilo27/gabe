@@ -1,0 +1,44 @@
+# Gabe settings. Edit these in the app (Settings); this file is kept in sync.
+assistant:
+  name: Gabe
+  own_tools: [get_current_time, recall]   # Gabe hands everything else to the team
+
+company:
+  name: Your company
+  timezone: Europe/Dublin
+  profile: |
+    Who's who, roles, and regular meetings. Gabe reads this.
+
+provider:
+  kind: anthropic
+  model: claude-opus-5-5
+  effort: high
+  refusal_fallback: true
+
+data_dir: ../data
+playbooks_dir: playbooks
+
+integrations:
+  - core
+  - memory
+  - tasks
+  - name: email
+    settings:
+      backend: gmail
+      credentials_file: gmail_client_secret.json
+
+policy:
+  defaults:
+    read: allow
+    write: allow
+    external: ask
+  tools: {}
+  integrations: {}
+
+briefing:
+  time: "08:00"
+  days: [mon, tue, wed, thu, fri]
+  email_to: [me]
+
+# Gabe's team: who Gabe hands work to (edit on the Agents screen).
+team_file: team.yaml

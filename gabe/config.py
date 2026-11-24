@@ -32,7 +32,9 @@ class DelegateSpec:
 @dataclass
 class Config:
     root: Path
+    path: Path | None = None  # the YAML file this came from
     assistant_name: str = "Gabe"
+    paused: bool = False  # Gabe itself is paused by a person
     # Tools Gabe uses directly when it has a team; the rest is done by team members.
     own_tools: list[str] = field(default_factory=lambda: list(DEFAULT_OWN_TOOLS))
     company: dict[str, Any] = field(default_factory=dict)
@@ -43,10 +45,10 @@ class Config:
     policy: dict[str, Any] = field(default_factory=dict)
     delegates: list[DelegateSpec] = field(default_factory=list)
     briefing: dict[str, Any] = field(default_factory=dict)
-    team_file: Path | None = None  # the hierarchy, edited from `gabe ui`; see gabe/team.py
+    team_file: Path | None = None  # the hierarchy, edited on the app's Agents screen; see gabe/team.py
 
     def team(self):
-        """The current team. Read fresh each time so edits from the Team page take effect."""
+        """The current team. Read fresh each time so edits from the Agents screen take effect."""
         from gabe.team import Member, Team, load_team
 
         if self.team_file is not None:
@@ -99,7 +101,9 @@ def load_config(path: str | os.PathLike[str] | None = None) -> Config:
 
     return Config(
         root=root,
+        path=path.resolve(),
         assistant_name=(raw.get("assistant") or {}).get("name", "Gabe"),
+        paused=bool((raw.get("assistant") or {}).get("paused", False)),
         own_tools=list((raw.get("assistant") or {}).get("own_tools", DEFAULT_OWN_TOOLS)),
         company=raw.get("company") or {},
         provider=raw.get("provider") or {"kind": "anthropic"},

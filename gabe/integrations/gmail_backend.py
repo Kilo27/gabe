@@ -30,15 +30,24 @@ def load_credentials(credentials_file: Path, token_file: Path, interactive: bool
     if creds and creds.valid:
         return creds
     if not interactive:
-        raise RuntimeError("Gmail is not authorised yet. Run `gabe auth gmail` in a terminal.")
+        raise RuntimeError("Gmail isn't signed in. Use Sign in with Google in Settings → Email.")
     if not credentials_file.exists():
         raise FileNotFoundError(
-            f"OAuth client file not found at {credentials_file}. See docs/GMAIL_SETUP.md."
+            f"Google sign-in isn't set up in this copy of Gabe (no OAuth client at {credentials_file})."
         )
     from google_auth_oauthlib.flow import InstalledAppFlow
 
     flow = InstalledAppFlow.from_client_secrets_file(str(credentials_file), SCOPES)
-    creds = flow.run_local_server(port=0)
+    # Google's page opens in the system browser (it blocks sign-in inside embedded app windows).
+    creds = flow.run_local_server(
+        port=0,
+        prompt="consent select_account",
+        authorization_prompt_message="",
+        success_message="Signed in. You can close this tab and go back to Gabe.",
+        timeout_seconds=300,
+    )
+    if creds is None:
+        raise TimeoutError("Google sign-in wasn't finished. Try again.")
     token_file.parent.mkdir(parents=True, exist_ok=True)
     token_file.write_text(creds.to_json())
     token_file.chmod(0o600)

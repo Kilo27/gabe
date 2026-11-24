@@ -1,8 +1,5 @@
 import json
-import threading
 import time
-import urllib.error
-import urllib.request
 
 import pytest
 
@@ -10,7 +7,6 @@ from gabe.app import build_gabe
 from gabe.config import load_config
 from gabe.providers.base import StepResult, ToolCall
 from gabe.team import Member, Team, TeamError, load_team, save_team
-from gabe.ui.server import Workspace, make_server
 from tests.conftest import ScriptedProvider
 from tests.test_agent import done, results, tool_step
 
@@ -58,10 +54,9 @@ def test_two_level_handoff_carries_the_chain(team_config):
     assert gabe.send("chase Sam") == "All done."
     # Gabe sees only direct reports; ops sees only the scheduler.
     tools_by_agent = [t for _, t in p.systems]
-    assert sorted(gabe.registry.get("delegate").input_schema["properties"]["specialist"]["enum"]) == [
-        "careful", "ops", "watcher", "wild"]
-    assert tools_by_agent[1] == ["delegate", "list_tasks"]
-    assert tools_by_agent[2] == ["create_task", "list_tasks"]
+    assert sorted(m.id for m in team_config.team().reports("chief")) == ["careful", "ops", "watcher", "wild"]
+    assert tools_by_agent[1] == ["ask_user", "delegate", "list_tasks"]
+    assert tools_by_agent[2] == ["ask_user", "create_task", "list_tasks"]
     assert "You report to Operations lead" in p.systems[2][0]
     tool_ev = next(d for k, d in events if k == "tool" and d["tool"] == "create_task")
     assert tool_ev["path"] == ["Gabe", "Operations lead", "Scheduler"]
@@ -75,8 +70,8 @@ def test_paused_manager_takes_their_whole_branch_offline(team_config):
     save_team(team_config.team_file, team)
     p = ScriptedProvider([done("hi")])
     gabe = build_gabe(team_config, provider=p)
-    enum = gabe.registry.get("delegate").input_schema["properties"]["specialist"]["enum"]
-    assert "ops" not in enum and "scheduler" not in enum
+    refused = gabe.registry.get("delegate").handler(specialist="ops", task="x")
+    assert "isn't one of your active direct reports" in refused
     assert not team.is_working("scheduler")
 
 
@@ -155,82 +150,69 @@ def wait_for(pred, timeout=5):
     raise AssertionError("timed out")
 
 
-def test_workspace_run_pauses_for_approval_and_resumes(team_config):
-    p = ScriptedProvider([
+def _client(team_config, script):
+    import gabe.web.state as web_state
+    from fastapi.testclient import TestClient
+
+    from gabe.web.server import create_app
+
+    provider = ScriptedProvider(script)
+    orig = web_state.build_gabe
+    web_state.build_gabe = lambda cfg, **kw: orig(cfg, provider=provider, **kw)
+    try:
+        return TestClient(create_app(team_config.path)), lambda: setattr(web_state, "build_gabe", orig)
+    except Exception:
+        web_state.build_gabe = orig
+        raise
+
+
+def test_app_run_pauses_for_a_members_approval_and_resumes(team_config):
+    c, restore = _client(team_config, [
         delegate("careful"),
         tool_step(("create_task", {"title": "Book room", "owner": "Sam"})),
         done("Booked."),
         done("Careful booked it."),
     ])
-    ws = Workspace(team_config, provider=p)
-    ws.ask("book a room")
-    wait_for(lambda: ws.run_view()["status"] == "waiting")
-    view = ws.run_view()
-    approval = view["approvals"][0]
-    assert approval["path"] == ["Gabe", "Careful"]
-    assert approval["summary"] == 'Careful wants to create a task "Book room" for Sam'
-    assert any(e["kind"] == "delegate" and e["depth"] == 0 for e in view["events"])
-    ws.decide(approval["id"], True)
-    wait_for(lambda: ws.run_view()["status"] == "done")
-    view = ws.run_view()
-    assert view["answer"] == "Careful booked it."
-    assert any(e["text"].startswith("Careful created a task") for e in view["events"])
-    history = ws.history_view()
-    # Newest first; the hand-off is logged when it finishes, after Careful's own action.
-    assert [h["who"] for h in history] == ["Gabe", "Gabe › Careful"]
-    assert history[0]["text"] == "handed work to Careful"
-
-
-@pytest.fixture
-def server(team_config):
-    srv = make_server(Workspace(team_config, provider=ScriptedProvider([])), port=0)
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
-    yield srv, team_config
-    srv.shutdown()
-    srv.server_close()
-
-
-def call(srv, method, path, body=None, headers=None):
-    port = srv.server_address[1]
-    h = {"Content-Type": "application/json"} if body is not None else {}
-    h.update(headers or {})
-    req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", method=method,
-                                 data=json.dumps(body).encode() if body is not None else None, headers=h)
     try:
-        with urllib.request.urlopen(req) as r:
-            return r.status, json.loads(r.read() or b"{}") if "json" in r.headers["Content-Type"] else r.read()
-    except urllib.error.HTTPError as e:
-        return e.code, json.loads(e.read())
+        sid = c.post("/api/agents/chief/jobs", json={"text": "book a room"}).json()["session_id"]
+        wait_for(lambda: any(a["status"] == "pending" for a in c.get("/api/approvals").json()))
+        approval = next(a for a in c.get("/api/approvals").json() if a["status"] == "pending")
+        assert approval["agent"] == "Careful" and approval["tool"] == "create_task"
+        careful = next(a for a in c.get("/api/agents").json()["agents"] if a["id"] == "careful")
+        assert careful["status"] == "waiting" and careful["waiting"] == [approval["id"]]
+        c.post(f"/api/approvals/{approval['id']}", json={"decision": "approve"})
+        wait_for(lambda: c.get(f"/api/sessions/{sid}").json()["messages"][-1]["status"] == "done")
+        assert c.get(f"/api/sessions/{sid}").json()["messages"][-1]["text"] == "Careful booked it."
+    finally:
+        restore()
 
 
-def test_api_edits_the_team_file(server):
-    srv, cfg = server
-    status, page = call(srv, "GET", "/")
-    assert status == 200 and b"Gabe's team" in page
-    status, team = call(srv, "GET", "/api/team")
-    assert {m["id"] for m in team["members"]} == {"ops", "scheduler", "watcher", "careful", "wild"}
-    assert any(s["name"] == "send_email" and s["company_rule"] == "ask" for s in team["skills"])
+def test_app_edits_the_team_file(team_config):
+    c, restore = _client(team_config, [])
+    try:
+        ids = {a["id"] for a in c.get("/api/agents").json()["agents"]}
+        assert {"chief", "briefing", "ops", "scheduler", "watcher", "careful", "wild"} <= ids
 
-    status, out = call(srv, "PUT", "/api/team/members/new",
-                       {"name": "Hiring helper", "job": "Hiring", "reports_to": "ops", "skills": ["list_tasks"]})
-    assert status == 200 and out["member"]["id"] == "hiring_helper"
-    assert cfg.team().get("hiring_helper").reports_to == "ops"
+        r = c.post("/api/agents", json={"name": "Hiring helper", "description": "Hiring", "reports_to": "ops", "tools": ["list_tasks"]})
+        assert r.status_code == 200 and r.json()["id"] == "hiring_helper"
+        assert team_config.team().get("hiring_helper").reports_to == "ops"
 
-    status, out = call(srv, "PUT", "/api/team/members/ops", {"name": "Ops", "reports_to": "scheduler"})
-    assert status == 400 and "managing themselves" in out["error"]
+        r = c.put("/api/agents/ops", json={"reports_to": "scheduler"})
+        assert r.status_code == 400 and "managing themselves" in r.json()["detail"]
 
-    status, _ = call(srv, "DELETE", "/api/team/members/ops", {})
-    assert status == 200
-    assert cfg.team().get("scheduler").reports_to == "chief"
+        assert c.put("/api/agents/careful", json={"freedom": "look_only"}).status_code == 200
+        assert team_config.team().get("careful").freedom == "look_only"
 
+        assert c.post("/api/agents/ops/pause", json={"paused": True}).status_code == 200
+        sched = next(a for a in c.get("/api/agents").json()["agents"] if a["id"] == "scheduler")
+        assert sched["status"] == "paused"  # its manager is paused
+        assert c.post("/api/agents/scheduler/jobs", json={"text": "x"}).status_code == 409
+        c.post("/api/agents/ops/pause", json={"paused": False})
 
-def test_api_refuses_other_websites(server):
-    srv, cfg = server
-    status, out = call(srv, "PUT", "/api/team/members/new", {"name": "Evil"}, {"Origin": "https://evil.example"})
-    assert status == 403
-    status, out = call(srv, "GET", "/api/team", headers={"Host": "evil.example"})
-    assert status == 403
-    assert cfg.team().get("evil") is None
+        assert c.delete("/api/agents/ops").status_code == 200
+        assert team_config.team().get("scheduler").reports_to == "chief"
+    finally:
+        restore()
 
 
 def test_skill_from_an_unconnected_integration_is_skipped_not_fatal(team_config):
@@ -239,7 +221,133 @@ def test_skill_from_an_unconnected_integration_is_skipped_not_fatal(team_config)
     save_team(team_config.team_file, team)
     p = ScriptedProvider([delegate("ops"), done("ok"), done("ok")])
     build_gabe(team_config, provider=p).send("go")
-    assert p.systems[1][1] == ["delegate", "list_tasks"]
-    view = Workspace(team_config, provider=p).team_view()
-    ops = next(m for m in view["members"] if m["id"] == "ops")
-    assert ops["missing_skills"] == [{"name": "search_email", "label": "Search email"}]
+    assert p.systems[1][1] == ["ask_user", "delegate", "list_tasks"]
+
+
+# ---- bots adding bots -------------------------------------------------------------
+
+def hire(**kw):
+    args = {"name": "Invoice chaser", "job": "Chases unpaid invoices.", "instructions": "Be polite.",
+            "skills": ["list_tasks"], "reports_to": "chief", "why": "Nobody does finance.",
+            "first_task": "Chase Acme."}
+    args.update(kw)
+    return tool_step(("add_team_member", args))
+
+
+def test_new_bot_starts_its_first_task_straight_away(team_config):
+    asked, events = [], []
+    p = ScriptedProvider([
+        hire(),
+        done("Chased Acme: they pay Friday."),   # the new bot, on its first task
+        done("Added and chased."),               # Gabe
+    ])
+    gabe = build_gabe(team_config, provider=p, approver=lambda t, a: asked.append(t.name) or True,
+                      on_event=lambda k, d: events.append((k, d)))
+    assert gabe.send("chase invoices") == "Added and chased."
+    assert asked == ["add_team_member"]  # a person approves every new bot
+    new = load_team(team_config.team_file).get("invoice_chaser")
+    assert new.reports_to == "chief" and new.skills == ["list_tasks"] and new.freedom == "standard"
+    out = results(p)[0][0].content
+    assert out.startswith("Added Invoice chaser") and "they pay Friday" in out
+    assert p.log[1] == ("user", "Chase Acme.")  # its first task, handed to it
+    hand = next(d for k, d in events if k == "delegate")
+    assert hand["to"] == "invoice_chaser" and hand["path"] == ["Gabe"]
+
+
+def test_new_bot_can_be_given_more_work_in_the_same_run(team_config):
+    p = ScriptedProvider([
+        hire(),
+        done("first done"),
+        tool_step(("delegate", {"specialist": "invoice_chaser", "task": "Chase Beta"})),
+        done("Chased."),
+        done("ok"),
+    ])
+    build_gabe(team_config, provider=p, approver=lambda t, a: True).send("x")
+    assert not results(p)[1][0].is_error and results(p)[1][0].content == "Chased."
+
+
+def test_gabe_adds_a_bot_under_another_bot(team_config):
+    events = []
+    p = ScriptedProvider([hire(reports_to="ops"), done("first done"), done("ok")])
+    build_gabe(team_config, provider=p, approver=lambda t, a: True,
+               on_event=lambda k, d: events.append((k, d))).send("x")
+    assert load_team(team_config.team_file).get("invoice_chaser").reports_to == "ops"
+    hand = next(d for k, d in events if k == "delegate")
+    assert hand["path"] == ["Gabe", "Operations lead"]  # handed down from its manager
+
+
+def test_overlapping_bot_must_go_under_the_member_who_owns_that_area(team_config):
+    p = ScriptedProvider([
+        hire(name="Scheduler helper", job="Owns tasks and deadlines."),                  # beside the scheduler
+        hire(name="Scheduler helper", job="Owns tasks and deadlines.", reports_to="scheduler"),
+        done("first done"),
+        done("ok"),
+    ])
+    build_gabe(team_config, provider=p, approver=lambda t, a: True).send("x")
+    first, second = results(p)[0][0], results(p)[1][0]
+    assert first.is_error and "overlaps Scheduler" in first.content and "reports_to: scheduler" in first.content
+    assert not second.is_error
+    assert load_team(team_config.team_file).get("scheduler_helper").reports_to == "scheduler"
+
+
+def test_new_bot_needs_a_first_task(team_config):
+    p = ScriptedProvider([hire(first_task=" "), done("ok")])
+    build_gabe(team_config, provider=p, approver=lambda t, a: True).send("x")
+    assert results(p)[0][0].is_error and "first_task" in results(p)[0][0].content
+    assert load_team(team_config.team_file).get("invoice_chaser") is None
+
+
+def test_declined_bot_is_not_added(team_config):
+    p = ScriptedProvider([hire(), done("ok")])
+    build_gabe(team_config, provider=p, approver=lambda t, a: False).send("x")
+    assert load_team(team_config.team_file).get("invoice_chaser") is None
+    assert results(p)[0][0].is_error
+
+
+def test_a_bot_can_only_add_bots_in_its_branch_with_what_it_has(team_config):
+    team = team_config.team()
+    team.get("ops").skills = ["list_tasks", "add_team_member"]
+    save_team(team_config.team_file, team)
+    p = ScriptedProvider([
+        hire(reports_to="careful"),                      # not in its branch
+        hire(reports_to="ops", skills=["send_email"]),   # an action it doesn't have
+        hire(reports_to="ops", freedom="trusted"),       # more freedom than allowed
+        hire(name="Late tasks", reports_to="scheduler"), # fine: under its own report
+        done("first done"),
+        done("ok"),
+    ])
+    build_gabe(team_config, provider=p, approver=lambda t, a: True, member="ops").send("grow")
+    out = [r[0].content for r in results(p)]
+    assert all(r[0].is_error for r in results(p)[:3])
+    assert "only add team members under yourself" in out[0]
+    assert "don't have yourself: send_email" in out[1]
+    assert "must be one of" in out[2] or "Invalid input" in out[2]
+    assert out[3].startswith("Added Late tasks")
+    assert load_team(team_config.team_file).get("late_tasks").reports_to == "scheduler"
+
+
+def test_look_only_bots_cannot_add_bots(team_config):
+    team = team_config.team()
+    team.get("watcher").skills = ["list_tasks", "add_team_member"]
+    save_team(team_config.team_file, team)
+    p = ScriptedProvider([hire(reports_to="watcher"), done("ok")])
+    build_gabe(team_config, provider=p, approver=lambda t, a: True, member="watcher").send("x")
+    assert results(p)[0][0].is_error and "policy" in results(p)[0][0].content
+    assert load_team(team_config.team_file).get("invoice_chaser") is None
+
+
+def test_hiring_moves_an_old_delegates_config_to_a_team_file(config_file):
+    p = ScriptedProvider([hire(), done("first done"), done("ok")])
+    build_gabe(load_config(config_file), provider=p, approver=lambda t, a: True).send("x")
+    cfg = load_config(config_file)
+    assert cfg.team_file is not None and not cfg.delegates
+    assert {m.id for m in cfg.team().members} == {"scheduler", "invoice_chaser"}
+
+
+def test_adding_a_bot_works_when_others_list_unconnected_actions(team_config):
+    team = team_config.team()
+    team.get("wild").skills = ["forget", "search_email"]  # outbox mode has no search_email
+    save_team(team_config.team_file, team)
+    p = ScriptedProvider([hire(), done("first done"), done("ok")])
+    build_gabe(team_config, provider=p, approver=lambda t, a: True).send("x")
+    assert load_team(team_config.team_file).get("invoice_chaser") is not None
