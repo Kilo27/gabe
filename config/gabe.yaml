@@ -3,6 +3,9 @@
 
 assistant:
   name: Gabe
+  # With delegates configured, Gabe only uses these tools itself and hands everything
+  # else to a specialist below. Make sure every other tool belongs to some delegate.
+  own_tools: [get_current_time, recall]
 
 company:
   name: Example Co
@@ -56,7 +59,8 @@ briefing:
   email_to: [me]           # "me" = the connected Gmail mailbox; add other addresses as needed
   # output_dir: ../data/briefings
 
-# Specialists Gabe can hand work to. `tools` limits what each one can use.
+# Specialists Gabe hands work to. `tools` limits what each one can use; omit it to
+# give a specialist every tool.
 delegates:
   scheduler:
     description: Plans deadlines, reviews workloads and chases overdue tasks.
@@ -69,4 +73,11 @@ delegates:
     instructions: |
       Write in the company's voice: plain, warm, brief. Check memory for context on
       recipients before writing.
-    tools: [recall, search_email, read_email, draft_email, send_email]
+    tools: [recall, search_email, read_email, draft_email, send_email, mark_email_read]
+  notes:
+    description: Keeps the record of decisions, commitments, preferences and people.
+    instructions: |
+      Save what you're given as clear, self-contained notes with good topics and tags.
+      Check for an existing note first; update it by forgetting the stale one rather
+      than saving a duplicate. When asked what's known about something, search broadly.
+    tools: [get_current_time, remember, recall, forget]

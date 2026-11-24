@@ -24,6 +24,9 @@ def build_gabe(
 
     registry = ToolRegistry()
     load_integrations(cfg, registry)
+    # With specialists, Gabe is a dispatcher: it keeps a few lookup tools and the
+    # delegate tool, and every other action goes through a specialist.
+    own = registry.subset([n for n in cfg.own_tools if registry.get(n)]) if cfg.delegates else registry
 
     if cfg.delegates:
         specs = {d.name: d for d in cfg.delegates}
@@ -42,12 +45,13 @@ def build_gabe(
             )
             return sub.send(task)
 
-        registry.register(
+        own.register(
             Tool(
                 name="delegate",
                 description=(
-                    "Hand a self-contained task to a specialist assistant and get its report back. "
-                    "The specialist cannot see this conversation: include every detail it needs."
+                    "Hand a task to a specialist assistant and get its report back. This is how "
+                    "you get almost everything done. The specialist cannot see this conversation: "
+                    "include every detail it needs."
                 ),
                 input_schema=schema(
                     {
@@ -65,8 +69,8 @@ def build_gabe(
     return Agent(
         name=cfg.assistant_name,
         provider=provider,
-        system=chief_of_staff_prompt(cfg),
-        registry=registry,
+        system=chief_of_staff_prompt(cfg, dispatcher=bool(cfg.delegates)),
+        registry=own,
         policy=policy,
         approver=approver,
         audit=audit,

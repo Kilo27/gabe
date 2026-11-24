@@ -50,7 +50,10 @@ the model as tool errors with an instruction not to retry. Every attempt is audi
 
 **Delegation.** Specialists defined in config become a `delegate` tool. Each specialist
 is a fresh `Agent` with its own prompt and a tool subset. It shares the provider, policy,
-approver and audit log, and it returns a report to Gabe.
+approver and audit log, and it returns a report to Gabe. When delegates exist, Gabe is a
+dispatcher: it keeps only `assistant.own_tools` (default `get_current_time`, `recall`)
+plus `delegate`, and its prompt tells it to hand almost every request to a specialist.
+Without delegates, Gabe uses every tool itself. The briefing run is always hands-on.
 
 ## Roadmap
 

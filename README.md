@@ -35,7 +35,7 @@ pytest                              # tests use a scripted provider, no API call
 | Playbooks | `config/playbooks/*.md` | How *this* company does things (SOPs Gabe follows) |
 | Integrations | `integrations:` | Which systems Gabe can touch; custom ones load by module path |
 | Policy | `policy:` | What runs unattended, what needs a human, what's blocked |
-| Delegates | `delegates:` | Specialist sub-agents with their own instructions and tool subsets |
+| Delegates | `delegates:` | Specialist sub-agents that do the work; Gabe dispatches to them and keeps only `assistant.own_tools` |
 | Model | `provider:` | Anthropic API now; local OpenAI-compatible server (GLM) later |
 
 ### Writing an integration
