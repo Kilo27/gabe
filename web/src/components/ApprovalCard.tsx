@@ -8,6 +8,47 @@ import { RISK, humanize, tool } from "../lib/tools";
 import { Chip, Field, useToast } from "./ui";
 
 const EMAIL_TOOLS = ["send_email", "draft_email"];
+const FREEDOM: Record<string, string> = { look_only: "Look, don't touch", ask_first: "Check with me first", standard: "Normal", trusted: "Trusted" };
+
+/** A proposed new bot: who it is, who it reports to, what it may do. */
+function NewMemberView({ args }: { args: Record<string, any> }) {
+  return (
+    <div className="letter">
+      <dl>
+        <dt>Name</dt><dd className="letter-subject">{args.name}</dd>
+        <dt>Job</dt><dd>{args.job}</dd>
+        <dt>Reports to</dt><dd>{args.reports_to ? humanize(String(args.reports_to)) : "Whoever asked"}</dd>
+        <dt>Freedom</dt><dd>{FREEDOM[args.freedom ?? "standard"] ?? args.freedom}</dd>
+      </dl>
+      <div className="letter-body">{args.instructions}</div>
+      <div className="row" style={{ gap: 6, marginTop: 12 }}>
+        {(args.skills ?? []).map((s: string) => <Chip key={s} hue={tool(s).area}>{tool(s).label}</Chip>)}
+      </div>
+    </div>
+  );
+}
+
+function NewMemberEditor({ value, onChange }: { value: Record<string, any>; onChange: (v: Record<string, any>) => void }) {
+  const skills: string[] = value.skills ?? [];
+  return (
+    <div className="stack" style={{ gap: 12 }}>
+      <Field label="Name"><input className="input" value={value.name ?? ""} onChange={(e) => onChange({ ...value, name: e.target.value })} /></Field>
+      <Field label="Job"><input className="input" value={value.job ?? ""} onChange={(e) => onChange({ ...value, job: e.target.value })} /></Field>
+      <Field label="Instructions"><textarea className="textarea" rows={4} value={value.instructions ?? ""} onChange={(e) => onChange({ ...value, instructions: e.target.value })} /></Field>
+      <Field label="Freedom">
+        <select className="select" value={value.freedom ?? "standard"} onChange={(e) => onChange({ ...value, freedom: e.target.value })}>
+          {["look_only", "ask_first", "standard"].map((f) => <option key={f} value={f}>{FREEDOM[f]}</option>)}
+        </select>
+      </Field>
+      <div className="field">
+        <span>What it can do (tap to remove)</span>
+        <div className="day-picks">
+          {skills.map((s) => <button key={s} type="button" aria-pressed onClick={() => onChange({ ...value, skills: skills.filter((x) => x !== s) })}>{tool(s).label}</button>)}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function EmailView({ args }: { args: Record<string, any> }) {
   return (
@@ -46,6 +87,7 @@ function GenericView({ args }: { args: Record<string, any> }) {
 const splitList = (s: string) => s.split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
 
 function Editor({ a, value, onChange }: { a: Approval; value: Record<string, any>; onChange: (v: Record<string, any>) => void }) {
+  if (a.tool === "add_team_member") return <NewMemberEditor value={value} onChange={onChange} />;
   if (EMAIL_TOOLS.includes(a.tool)) {
     return (
       <div className="stack" style={{ gap: 12 }}>
@@ -136,6 +178,8 @@ export function ApprovalCard({ a, compact }: { a: Approval; compact?: boolean })
       <div className="approval-body">
         {mode === "edit" ? (
           <Editor a={a} value={draft} onChange={setDraft} />
+        ) : a.tool === "add_team_member" ? (
+          <NewMemberView args={a.args} />
         ) : EMAIL_TOOLS.includes(a.tool) ? (
           <EmailView args={a.args} />
         ) : (

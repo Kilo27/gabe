@@ -87,7 +87,15 @@ def _company_block(cfg: Config) -> str:
     return "\n\n".join(parts)
 
 
-def chief_of_staff_prompt(cfg: Config, reports: "list[Member] | None" = None, dispatcher: bool = False) -> str:
+HIRE_NOTE = """\
+## Growing the team
+If work keeps coming up that nobody on your team fits, add a team member for it with
+`add_team_member`, under yourself or under someone on your team. Give it a clear job and
+only the actions it needs. A person approves every new team member before it exists."""
+
+
+def chief_of_staff_prompt(cfg: Config, reports: "list[Member] | None" = None, dispatcher: bool = False,
+                          can_hire: bool = False) -> str:
     """Gabe's prompt. `dispatcher`: Gabe hands work to its team instead of doing it (chat).
     Without it Gabe uses its tools itself (e.g. the unattended briefing run)."""
     company = cfg.company.get("name", "the company")
@@ -99,13 +107,16 @@ def chief_of_staff_prompt(cfg: Config, reports: "list[Member] | None" = None, di
         reports = cfg.team().reports(CHIEF_ID)
     if reports:
         out.append(TEAM_NOTE.format(roster=_roster(reports)))
+    if can_hire:
+        out.append(HIRE_NOTE)
     block = _company_block(cfg)
     if block:
         out.append(block)
     return "\n\n".join(out)
 
 
-def delegate_prompt(cfg: Config, member: "Member", manager: str, reports: "list[Member]" = ()) -> str:
+def delegate_prompt(cfg: Config, member: "Member", manager: str, reports: "list[Member]" = (),
+                    can_hire: bool = False) -> str:
     company = cfg.company.get("name", "the company")
     out = [
         DELEGATE.format(
@@ -119,6 +130,8 @@ def delegate_prompt(cfg: Config, member: "Member", manager: str, reports: "list[
     ]
     if reports:
         out.append(TEAM_NOTE.format(roster=_roster(list(reports))))
+    if can_hire:
+        out.append(HIRE_NOTE)
     block = _company_block(cfg)
     if block:
         out.append(block)

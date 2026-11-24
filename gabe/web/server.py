@@ -18,11 +18,12 @@ from fastapi import Body, FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from gabe.app import team_skills
 from gabe.briefing import DAYS, BriefingSettings, build_briefer, company_tz, email_briefing, next_run, run_briefing
 from gabe.integrations import IntegrationContext, load_integrations
 from gabe.integrations._store import JsonStore
 from gabe.policy import Policy
-from gabe.tools.registry import Risk, ToolRegistry
+from gabe.tools.registry import Risk, Tool, ToolRegistry
 from gabe.web.state import WebState, check_args, friendly_error, new_id, now
 
 STATIC = Path(__file__).parent / "static"
@@ -71,12 +72,13 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
         return reg
 
     def find_tool(name: str):
+        """A tool by name, including Gabe's own (delegate, add_team_member), to check edited input."""
         cfg = state.config()
-        if name == "delegate":
+        if name in ("delegate", "add_team_member"):
             from gabe.app import build_gabe
             from gabe.policy import deny_all
 
-            return build_gabe(cfg, approver=deny_all, provider=_NoProvider()).registry.get("delegate")
+            return build_gabe(cfg, approver=deny_all, provider=_NoProvider(), team=cfg.team()).registry.get(name)
         return registry().get(name)
 
     def brief_dir() -> Path:
@@ -621,7 +623,7 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
                 "tools": policy_rows(cfg),
                 "integrations": (raw.get("policy") or {}).get("integrations") or {},
             },
-            "all_tools": [t.name for t in registry().tools()],
+            "all_tools": team_skills(cfg),
             "provider": provider,
             "integrations": integrations,
             "playbooks": playbooks,
@@ -851,13 +853,16 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
         team = load_team(path)
         try:
             fn(team)
-            team.validate(set(registry()._tools))
+            team.validate()  # edited members' actions are checked in member_from_payload
         except TeamError as e:
             bad(str(e))
         save_team(path, team)
 
     def agent_rows(cfg) -> list[dict[str, Any]]:
+        from gabe.app import HIRE
+
         reg = registry()
+        reg.register(Tool(HIRE, "", {}, lambda **k: None, Risk.WRITE, "team", ask_first=True))  # for its rule
         all_tools = [t.name for t in reg.tools()]
         pol = Policy.from_config(cfg.policy)
         team = cfg.team()
@@ -867,13 +872,13 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
         rows = [{
             "id": "chief", "name": cfg.assistant_name, "log_name": cfg.assistant_name, "kind": "chief",
             "role": "Chief of staff. Hands your requests to the team.",
-            "instructions": "", "tools": (own if own is not None else all_tools) + (["delegate"] if team.reports(CHIEF_ID) else []),
+            "instructions": "", "tools": sorted(set((own if own is not None else all_tools) + [HIRE])) + (["delegate"] if team.reports(CHIEF_ID) else []),
             "paused": cfg.paused, "held": False, "rules": (cfg.policy or {}).get("tools") or {}, "reports_to": "you",
             "freedom": None,
         }, {
             "id": "briefing", "name": "Briefing writer", "log_name": f"{cfg.assistant_name} (briefing)", "kind": "briefing",
             "role": "Writes the daily brief. Read only.",
-            "instructions": "", "tools": [t.name for t in reg.tools() if t.risk is Risk.READ],
+            "instructions": "", "tools": [t.name for t in reg.tools() if t.risk is Risk.READ and t.name != HIRE],
             "paused": BriefingSettings.from_config(cfg).paused, "held": False, "rules": {}, "reports_to": "chief",
             "freedom": None,
         }]
@@ -976,7 +981,7 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
         return {"ok": True}
 
     def member_from_payload(payload: dict, existing: Member | None, team) -> Member:
-        known = set(registry()._tools)
+        known = set(team_skills(state.config()))
         name = str(payload.get("name", existing.name if existing else "")).strip()
         if not name:
             bad("Give the agent a name.")
@@ -1074,7 +1079,7 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
             if not m:
                 raise RuntimeError(f"{cfg.assistant_name} didn't come back with a proposal. Try describing the role differently.")
             p = json.loads(m.group(0))
-            known = set(registry()._tools)
+            known = set(team_skills(state.config()))
             ids = {x["id"] for x in existing}
             reports_to = str(p.get("reports_to") or CHIEF_ID)
             return {"role": role, "name": str(p.get("name", "")).strip(), "description": str(p.get("description", "")),

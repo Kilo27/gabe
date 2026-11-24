@@ -27,6 +27,9 @@ class Tool:
     handler: Callable[..., Any]
     risk: Risk = Risk.READ
     integration: str = "core"
+    # Needs a person's OK whatever the risk defaults say, unless the company sets a rule
+    # for this exact action (policy.tools).
+    ask_first: bool = False
 
     def run(self, args: dict[str, Any]) -> str:
         out = self.handler(**args)

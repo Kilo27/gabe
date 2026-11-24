@@ -54,8 +54,7 @@ def test_two_level_handoff_carries_the_chain(team_config):
     assert gabe.send("chase Sam") == "All done."
     # Gabe sees only direct reports; ops sees only the scheduler.
     tools_by_agent = [t for _, t in p.systems]
-    assert sorted(gabe.registry.get("delegate").input_schema["properties"]["specialist"]["enum"]) == [
-        "careful", "ops", "watcher", "wild"]
+    assert sorted(m.id for m in team_config.team().reports("chief")) == ["careful", "ops", "watcher", "wild"]
     assert tools_by_agent[1] == ["delegate", "list_tasks"]
     assert tools_by_agent[2] == ["create_task", "list_tasks"]
     assert "You report to Operations lead" in p.systems[2][0]
@@ -71,8 +70,8 @@ def test_paused_manager_takes_their_whole_branch_offline(team_config):
     save_team(team_config.team_file, team)
     p = ScriptedProvider([done("hi")])
     gabe = build_gabe(team_config, provider=p)
-    enum = gabe.registry.get("delegate").input_schema["properties"]["specialist"]["enum"]
-    assert "ops" not in enum and "scheduler" not in enum
+    refused = gabe.registry.get("delegate").handler(specialist="ops", task="x")
+    assert "isn't one of your active direct reports" in refused
     assert not team.is_working("scheduler")
 
 
@@ -223,3 +222,90 @@ def test_skill_from_an_unconnected_integration_is_skipped_not_fatal(team_config)
     p = ScriptedProvider([delegate("ops"), done("ok"), done("ok")])
     build_gabe(team_config, provider=p).send("go")
     assert p.systems[1][1] == ["delegate", "list_tasks"]
+
+
+# ---- bots adding bots -------------------------------------------------------------
+
+def hire(**kw):
+    args = {"name": "Invoice chaser", "job": "Chases unpaid invoices.", "instructions": "Be polite.",
+            "skills": ["list_tasks"]}
+    args.update(kw)
+    return tool_step(("add_team_member", args))
+
+
+def test_gabe_adds_a_bot_under_itself_and_uses_it_in_the_same_run(team_config):
+    asked = []
+    p = ScriptedProvider([
+        hire(),
+        tool_step(("delegate", {"specialist": "invoice_chaser", "task": "Chase Acme"})),
+        done("Chased."),             # the new bot
+        done("Added and chased."),   # Gabe
+    ])
+    gabe = build_gabe(team_config, provider=p, approver=lambda t, a: asked.append(t.name) or True)
+    assert gabe.send("chase invoices") == "Added and chased."
+    assert asked == ["add_team_member"]  # a person approves every new bot
+    new = load_team(team_config.team_file).get("invoice_chaser")
+    assert new.reports_to == "chief" and new.skills == ["list_tasks"] and new.freedom == "standard"
+    assert "Added Invoice chaser" in results(p)[0][0].content
+    assert not results(p)[1][0].is_error and results(p)[1][0].content == "Chased."
+
+
+def test_gabe_adds_a_bot_under_another_bot(team_config):
+    p = ScriptedProvider([hire(reports_to="ops"), done("ok")])
+    build_gabe(team_config, provider=p, approver=lambda t, a: True).send("x")
+    assert load_team(team_config.team_file).get("invoice_chaser").reports_to == "ops"
+
+
+def test_declined_bot_is_not_added(team_config):
+    p = ScriptedProvider([hire(), done("ok")])
+    build_gabe(team_config, provider=p, approver=lambda t, a: False).send("x")
+    assert load_team(team_config.team_file).get("invoice_chaser") is None
+    assert results(p)[0][0].is_error
+
+
+def test_a_bot_can_only_add_bots_in_its_branch_with_what_it_has(team_config):
+    team = team_config.team()
+    team.get("ops").skills = ["list_tasks", "add_team_member"]
+    save_team(team_config.team_file, team)
+    p = ScriptedProvider([
+        hire(reports_to="careful"),                      # not in its branch
+        hire(skills=["send_email"]),                     # an action it doesn't have
+        hire(freedom="trusted"),                         # more freedom than allowed
+        hire(name="Late tasks", reports_to="scheduler"), # fine: under its own report
+        done("ok"),
+    ])
+    build_gabe(team_config, provider=p, approver=lambda t, a: True, member="ops").send("grow")
+    out = [r[0].content for r in results(p)]
+    assert all(r[0].is_error for r in results(p)[:3])
+    assert "only add team members under yourself" in out[0]
+    assert "don't have yourself: send_email" in out[1]
+    assert "must be one of" in out[2] or "Invalid input" in out[2]
+    assert out[3].startswith("Added Late tasks")
+    assert load_team(team_config.team_file).get("late_tasks").reports_to == "scheduler"
+
+
+def test_look_only_bots_cannot_add_bots(team_config):
+    team = team_config.team()
+    team.get("watcher").skills = ["list_tasks", "add_team_member"]
+    save_team(team_config.team_file, team)
+    p = ScriptedProvider([hire(), done("ok")])
+    build_gabe(team_config, provider=p, approver=lambda t, a: True, member="watcher").send("x")
+    assert results(p)[0][0].is_error and "policy" in results(p)[0][0].content
+    assert load_team(team_config.team_file).get("invoice_chaser") is None
+
+
+def test_hiring_moves_an_old_delegates_config_to_a_team_file(config_file):
+    p = ScriptedProvider([hire(), done("ok")])
+    build_gabe(load_config(config_file), provider=p, approver=lambda t, a: True).send("x")
+    cfg = load_config(config_file)
+    assert cfg.team_file is not None and not cfg.delegates
+    assert {m.id for m in cfg.team().members} == {"scheduler", "invoice_chaser"}
+
+
+def test_adding_a_bot_works_when_others_list_unconnected_actions(team_config):
+    team = team_config.team()
+    team.get("wild").skills = ["forget", "search_email"]  # outbox mode has no search_email
+    save_team(team_config.team_file, team)
+    p = ScriptedProvider([hire(), done("ok")])
+    build_gabe(team_config, provider=p, approver=lambda t, a: True).send("x")
+    assert load_team(team_config.team_file).get("invoice_chaser") is not None

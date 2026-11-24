@@ -64,10 +64,13 @@ class Policy:
     def decide(self, tool: Tool) -> Decision:
         if tool.name in self.tool_overrides:
             decision = self.tool_overrides[tool.name]
-        elif tool.integration in self.integration_overrides:
-            decision = self.integration_overrides[tool.integration]
         else:
-            decision = self.defaults.get(tool.risk, Decision.ASK)
+            if tool.integration in self.integration_overrides:
+                decision = self.integration_overrides[tool.integration]
+            else:
+                decision = self.defaults.get(tool.risk, Decision.ASK)
+            if tool.ask_first:
+                decision = stricter(decision, Decision.ASK)
         return stricter(decision, self.ceiling.get(tool.risk, Decision.ALLOW))
 
     def restricted(self, ceiling: dict[Risk, Decision]) -> "Policy":

@@ -151,6 +151,14 @@ The **Agents** screen in the app is the org chart: change anyone's name, job, in
 manager, skills and freedom level, pause or remove them, give them a job directly, or ask
 Gabe to propose a new member. Changes save to `config/team.yaml`.
 
+**Bots can add bots.** Gabe has an `add_team_member` action: when work keeps coming up that
+nobody fits, it proposes a new member under itself or under anyone on the team. Any member
+given that action (in its skills) can add members within its own branch. A person approves
+every new member first (the approval card shows the name, job, manager, freedom and actions,
+and can be edited), unless `policy.tools.add_team_member` says otherwise. A bot can only give
+a new member actions it has itself and at most its own freedom (never "trusted"), and a
+"look only" bot can't add anyone. A new member can be given work in the same run.
+
 Controls, and how they combine:
 
 | Control | Effect |

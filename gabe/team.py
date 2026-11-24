@@ -236,3 +236,27 @@ def save_team(path: Path, team: Team) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(_HEADER + "\n" + body)
     tmp.replace(path)  # atomic: a crash never leaves a half-written team file
+
+
+def ensure_team_file(cfg) -> Path:
+    """The config's team file. Older configs with `delegates:` get one created from them
+    (and config switched to `team_file:`) the first time the team is changed."""
+    if cfg.team_file is not None:
+        return cfg.team_file
+    if cfg.path is None:
+        raise TeamError("This setup has no config file to save the team to.")
+    path = cfg.root / "team.yaml"
+    if not path.exists():
+        save_team(path, cfg.team())
+    raw = yaml.safe_load(cfg.path.read_text()) or {}
+    backup = cfg.path.with_name(cfg.path.name + ".bak")
+    if not backup.exists():
+        backup.write_text(cfg.path.read_text())
+    raw.pop("delegates", None)
+    raw["team_file"] = "team.yaml"
+    cfg.path.write_text(yaml.safe_dump(raw, sort_keys=False, allow_unicode=True, width=100))
+    cfg.team_file, cfg.delegates = path, []
+    return path
+
+
+FREEDOM_ORDER = ["look_only", "ask_first", "standard", "trusted"]
