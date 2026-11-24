@@ -311,3 +311,77 @@ def test_agents_show_the_model_they_run_on(config_file):
     assert rows["fixed"]["model_in_use"] == "sonnet"
     assert rows["picked"]["model"] is None and rows["picked"]["model_in_use"] == "haiku"  # its last job
     assert rows["fresh"]["model_in_use"] is None
+
+
+def _interrupted_session(config_file, **reply_extra):
+    import json as _json
+
+    from gabe.config import load_config
+
+    d = load_config(config_file).data_dir / "web" / "sessions"
+    d.mkdir(parents=True, exist_ok=True)
+    reply = {"id": "r1", "role": "assistant", "text": "", "ts": "2026-11-24T10:00:00+00:00", "status": "working",
+             "prompt": "Email Alex about the board pack",
+             "activity": [{"kind": "tool", "agent": "Gabe", "tool": "send_email",
+                           "input": {"to": ["alex@x.co"], "subject": "Board pack"}, "outcome": "ok"}],
+             **reply_extra}
+    s = {"id": "s1", "title": "Board pack", "created": "x", "updated": "x", "status": "running", "agent": None,
+         "messages": [{"id": "u1", "role": "user", "text": "Email Alex about the board pack", "ts": "x",
+                       "status": "done", "activity": []}, reply]}
+    (d / "s1.json").write_text(_json.dumps(s))
+
+
+def test_interrupted_work_is_picked_up_without_repeating_done_steps(config_file, monkeypatch):
+    _interrupted_session(config_file)
+    c, provider = _client(config_file, monkeypatch, [StepResult("Already sent; nothing more to do.", [], "done")])
+    msg = _wait(lambda: (m := c.get("/api/sessions/s1").json()["messages"][-1])["status"] == "done" and m)
+    assert msg["text"] == "Already sent; nothing more to do." and msg["resumes"] == 1
+    assert any(a["kind"] == "resumed" for a in msg["activity"])
+    sent = next(x for k, x in provider.log if k == "user")
+    assert sent.startswith("Email Alex about the board pack")
+    assert "picking it back up" in sent and 'done: send_email {"to": ["alex@x.co"], "subject": "Board pack"}' in sent
+    assert c.app.state.gabe.resumed == [{"session_id": "s1", "title": "Board pack", "agent": None}]
+
+
+def test_work_that_keeps_crashing_the_app_is_stopped(config_file, monkeypatch):
+    _interrupted_session(config_file, resumes=2)
+    c, provider = _client(config_file, monkeypatch, [])
+    msg = _wait(lambda: (m := c.get("/api/sessions/s1").json()["messages"][-1])["status"] == "error" and m)
+    assert "stopped retrying" in msg["text"] and not provider.log
+
+
+def test_interrupted_work_for_a_paused_agent_is_not_restarted(config_file, monkeypatch):
+    import yaml as _yaml
+
+    raw = _yaml.safe_load(config_file.read_text())
+    raw.setdefault("assistant", {})["paused"] = True
+    config_file.write_text(_yaml.safe_dump(raw))
+    _interrupted_session(config_file)
+    c, provider = _client(config_file, monkeypatch, [])
+    msg = _wait(lambda: (m := c.get("/api/sessions/s1").json()["messages"][-1])["status"] == "error" and m)
+    assert "wasn't restarted" in msg["text"] and "paused" in msg["text"] and not provider.log
+
+
+def test_missed_brief_is_caught_up(config_file):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from gabe.briefing import BriefingSettings, missed_brief
+    from gabe.config import load_config
+
+    cfg = load_config(config_file)
+    tue_9am = datetime(2026, 11, 24, 9, 0, tzinfo=ZoneInfo("UTC"))
+    assert missed_brief(cfg, tue_9am)                                    # due at 08:00, none written
+    assert not missed_brief(cfg, tue_9am.replace(hour=7))                # not due yet
+    assert not missed_brief(cfg, datetime(2026, 11, 29, 9, tzinfo=ZoneInfo("UTC")))  # Sunday
+    out = BriefingSettings.from_config(cfg).output_dir
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "2026-11-24.md").write_text("done")
+    assert not missed_brief(cfg, tue_9am)                                # already written
+
+
+def test_picked_up_work_is_announced_too(config_file, monkeypatch):
+    _interrupted_session(config_file)
+    c, _ = _client(config_file, monkeypatch, [StepResult("Done now.", [], "done")])
+    [n] = _notices(c, 1)
+    assert n["kind"] == "done" and n["session_id"] == "s1"

@@ -100,10 +100,11 @@ export type Approval = {
 export type ActivityItem =
   | { kind: "tool"; agent: string; tool: string; input: any; outcome: string; ts: string }
   | { kind: "thought"; agent: string; text: string; ts: string }
-  | { kind: "approval"; approval_id: string; tool: string; ts: string };
+  | { kind: "approval"; approval_id: string; tool: string; ts: string }
+  | { kind: "resumed"; ts: string };
 
 export type Notice = { id: string; kind: "done" | "failed"; title: string; body: string; session_id: string | null; agent: string | null; ts: string };
-export type Message = { task?: { id: string; title: string }; auto?: boolean; fix_session?: string; id: string; role: "user" | "assistant"; text: string; ts: string; status: "done" | "working" | "waiting" | "error"; activity: ActivityItem[] };
+export type Message = { task?: { id: string; title: string }; auto?: boolean; fix_session?: string; id: string; role: "user" | "assistant"; text: string; ts: string; status: "done" | "working" | "waiting" | "error" | "interrupted"; activity: ActivityItem[] };
 export type Session = { agent?: string | null; id: string; title: string; created: string; updated: string; status: "idle" | "running"; messages: Message[]; memory_reset?: boolean };
 export type SessionSummary = { agent?: string | null; id: string; title: string; updated: string; status: string; count: number; preview: string };
 

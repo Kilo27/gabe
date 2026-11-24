@@ -14,8 +14,9 @@ import { AskBox } from "./Today";
 function Steps({ m }: { m: Message }) {
   const { data: ov } = useOverview();
   const steps = m.activity.filter((a) => a.kind === "tool");
+  const resumed = m.activity.some((a) => a.kind === "resumed");
   const [open, setOpen] = useState(false);
-  if (!steps.length) return null;
+  if (!steps.length && !resumed) return null;
   const problems = steps.filter((s) => s.kind === "tool" && s.outcome !== "ok").length;
   return (
     <div className="steps">
@@ -25,6 +26,7 @@ function Steps({ m }: { m: Message }) {
         </span>
         Gabe took {steps.length} {steps.length === 1 ? "step" : "steps"}
         {problems > 0 && <span className="steps-problem"> · {problems} didn't go through</span>}
+        {resumed && <span className="steps-resumed"> · picked up after a restart</span>}
         <ChevronDown size={15} style={{ rotate: open ? "180deg" : "0deg", transition: "rotate 200ms" }} />
       </button>
       {open && (
@@ -37,6 +39,11 @@ function Steps({ m }: { m: Message }) {
                   {a.outcome === "ok" ? tool(a.tool).past(a.input) : <>{tool(a.tool).label} <em>({outcome(a.outcome).label.toLowerCase()})</em></>}
                   {a.agent && a.agent !== ov?.assistant && <span className="faint"> · {agentName(a.agent, ov?.assistant)}</span>}
                 </span>
+              </li>
+            ) : a.kind === "resumed" ? (
+              <li key={i} className="step-resumed" data-area="activity">
+                <span className="dot" />
+                <span>Picked up again after the app closed</span>
               </li>
             ) : a.kind === "thought" ? (
               <li key={i} className="step-thought" data-area="neutral">
@@ -148,6 +155,9 @@ function Thread({ id }: { id: string }) {
                   <div className="working" data-area="approvals"><ShieldAlert size={17} /> Waiting for approval</div>
                 )}
                 {m.status === "working" && <Working m={m} />}
+                {m.status === "interrupted" && (
+                  <div className="working" data-area="activity"><Loader2 size={17} className="spin" /> The app closed during this. Picking it back up…</div>
+                )}
                 {m.text && (m.status === "error" ? (
                   <Notice hue="danger" icon={AlertTriangle}>
                     {m.text}

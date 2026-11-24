@@ -185,7 +185,7 @@ function QuestionCard({ a, compact }: { a: Approval; compact?: boolean }) {
         </form>
       ) : (
         <div className="approval-why">
-          {a.status === "answered" ? <>You answered: “{a.answer}”</> : "Expired when the app restarted. Not answered."}
+          {a.status === "answered" ? <>You answered: “{a.answer}”</> : "The app closed before you answered. Gabe asks again if it still needs to know."}
         </div>
       )}
       {!compact && a.session_id && (
@@ -274,7 +274,7 @@ function ApprovalDecision({ a, compact }: { a: Approval; compact?: boolean }) {
 
       {!pending && (a.note || a.decided) && (
         <div className="approval-why">
-          {a.status === "expired" ? "Expired when the app restarted. Not done." : <>Decided {when(a.decided)}{a.note && <> · Note: “{a.note}”</>}</>}
+          {a.status === "expired" ? "The app closed before this was answered, so it wasn't done. Gabe asks again if it still needs it." : <>Decided {when(a.decided)}{a.note && <> · Note: “{a.note}”</>}</>}
         </div>
       )}
 
