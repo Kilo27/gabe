@@ -9,3 +9,4 @@ dist/
 build/
 *client_secret*.json
 *token*.json
+.DS_Store
