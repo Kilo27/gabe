@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckSquare, Columns3, List, Plus, Search } from "lucide-react";
+import { Bot, CheckSquare, Columns3, List, Plus, Search, Send } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { api, type Task, type TaskStatus } from "../api";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { api, type AgentsData, type Task, type TaskStatus } from "../api";
 import { Chip, Empty, Field, PageHeader, Segmented, Sheet, SkeletonList, useToast } from "../components/ui";
 import { dayLabel, when } from "../lib/format";
 import { STATUS } from "../lib/tools";
@@ -30,6 +30,50 @@ function DueLabel({ t, today }: { t: Task; today: string }) {
   const soon = t.due === today && ACTIVE.includes(t.status);
   if (!t.due) return <span className="faint">—</span>;
   return late ? <Chip hue="danger">{dayLabel(t.due, today)}</Chip> : soon ? <Chip hue="today">Today</Chip> : <span>{dayLabel(t.due, today)}</span>;
+}
+
+/** Hand a task to one of the bots: it gets the task's details and keeps it updated. */
+function GiveToBot({ task, onDone }: { task: Task; onDone: () => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const nav = useNavigate();
+  const agents = useQuery({ queryKey: ["agents"], queryFn: () => api.get<AgentsData>("/api/agents") });
+  const choices = (agents.data?.agents ?? []).filter((a) => a.kind !== "briefing" && a.status !== "paused");
+  const [who, setWho] = useState("");
+  const [note, setNote] = useState("");
+  const pick = who || task.handled_by?.agent_id || "chief";
+  const give = useMutation({
+    mutationFn: () => api.post<{ session_id: string }>(`/api/agents/${pick}/jobs`, { text: note, task_id: task.id }),
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["agents"] });
+      toast(`${choices.find((a) => a.id === pick)?.name ?? "Gabe"} is on it`, "ask");
+      onDone();
+      nav(`/ask/${r.session_id}`);
+    },
+    onError: (e: Error) => toast(e.message, "danger"),
+  });
+  return (
+    <div className="give-bot" data-area="ask">
+      <div className="row" style={{ justifyContent: "space-between" }}>
+        <strong>Give to a bot</strong>
+        {task.handled_by && (
+          <Link className="handled-by" to={`/ask/${task.handled_by.session_id}`}><Bot size={14} /> With {task.handled_by.agent}</Link>
+        )}
+      </div>
+      <div className="form-grid">
+        <Field label="Bot">
+          <select className="select" value={pick} onChange={(e) => setWho(e.target.value)}>
+            {choices.map((a) => <option key={a.id} value={a.id}>{a.name}{a.kind === "member" && a.role ? ` · ${a.role}` : ""}</option>)}
+          </select>
+        </Field>
+        <Field label="Note (optional)">
+          <input className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Anything it should know" />
+        </Field>
+      </div>
+      <div><button type="button" className="btn btn-primary" onClick={() => give.mutate()} disabled={give.isPending || !choices.length}><Send size={15} /> Send to bot</button></div>
+    </div>
+  );
 }
 
 function TaskSheet({ task, owners, projects, onClose }: { task: Partial<Task> | null; owners: string[]; projects: string[]; onClose: () => void }) {
@@ -81,6 +125,7 @@ function TaskSheet({ task, owners, projects, onClose }: { task: Partial<Task> | 
         {!isNew && (
           <p className="faint">{task?.source ?? "Created by Gabe"} · {when(task?.created)}</p>
         )}
+        {!isNew && task?.id && <GiveToBot task={task as Task} onDone={onClose} />}
         <datalist id="owners">{owners.map((o) => <option key={o} value={o} />)}</datalist>
         <datalist id="projects">{projects.map((o) => <option key={o} value={o} />)}</datalist>
         <button hidden />
@@ -193,7 +238,12 @@ export default function Tasks() {
                       <button className="link-btn" onClick={(e) => { e.stopPropagation(); setEditing(t); }}>{t.title}</button>
                       {t.project && <div className="faint">{t.project}</div>}
                     </td>
-                    <td>{t.owner}</td>
+                    <td>
+                      {t.owner}
+                      {t.handled_by && ACTIVE.includes(t.status) && (
+                        <div><Link className="handled-by" to={`/ask/${t.handled_by.session_id}`} onClick={(e) => e.stopPropagation()}><Bot size={13} /> {t.handled_by.agent}</Link></div>
+                      )}
+                    </td>
                     <td><DueLabel t={t} today={today} /></td>
                     <td><StatusSelect t={t} onChange={(s) => setStatus(t.id, s)} /></td>
                   </tr>
@@ -217,6 +267,7 @@ export default function Tasks() {
                         <span className="faint grow">{t.owner}</span>
                         <DueLabel t={t} today={today} />
                       </div>
+                      {t.handled_by && ACTIVE.includes(t.status) && <span className="handled-by"><Bot size={13} /> With {t.handled_by.agent}</span>}
                       <StatusSelect t={t} onChange={(s) => setStatus(t.id, s)} />
                     </article>
                   ))}

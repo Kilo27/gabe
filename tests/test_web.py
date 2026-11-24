@@ -162,3 +162,28 @@ def test_notification_text_says_who_and_what():
     title, body = describe_request({"agent": "Communications", "tool": "send_email",
                                     "args": {"to": ["a@b.co"], "subject": "Hi"}})
     assert title == "Communications needs your OK" and body == "Send an email to a@b.co: Hi"
+
+
+def test_task_attached_to_a_bot_job(config_file, monkeypatch):
+    c, provider = _client(config_file, monkeypatch, [StepResult("On it.", [], "done")])
+    t = c.post("/api/tasks", json={"title": "Renew lease", "owner": "Sam", "due": "2026-12-01", "notes": "Landlord is Pat"}).json()
+    r = c.post("/api/agents/scheduler/jobs", json={"text": "Sort this out", "task_id": t["id"]})
+    sid = r.json()["session_id"]
+    _wait(lambda: c.get(f"/api/sessions/{sid}").json()["messages"][-1]["status"] == "done")
+    sent = next(x for k, x in provider.log if k == "user")
+    assert sent.startswith("Sort this out") and f"Attached task (id {t['id']}): Renew lease" in sent
+    assert "Landlord is Pat" in sent and "update_task" in sent
+    s = c.get(f"/api/sessions/{sid}").json()
+    assert s["messages"][0]["task"] == {"id": t["id"], "title": "Renew lease"} and s["messages"][0]["text"] == "Sort this out"
+    task = next(x for x in c.get("/api/tasks").json()["tasks"] if x["id"] == t["id"])
+    assert task["handled_by"]["agent_id"] == "scheduler" and task["handled_by"]["session_id"] == sid
+
+
+def test_task_alone_is_enough_for_a_job(config_file, monkeypatch):
+    c, provider = _client(config_file, monkeypatch, [StepResult("ok", [], "done")])
+    t = c.post("/api/tasks", json={"title": "Book offsite", "owner": "Sam"}).json()
+    sid = c.post("/api/agents/chief/jobs", json={"text": "", "task_id": t["id"]}).json()["session_id"]
+    assert c.get(f"/api/sessions/{sid}").json()["title"] == "Book offsite"
+    before = len(c.get("/api/sessions").json())
+    assert c.post("/api/agents/chief/jobs", json={"text": "", "task_id": "nope"}).status_code == 404
+    assert len(c.get("/api/sessions").json()) == before  # no empty conversation left behind

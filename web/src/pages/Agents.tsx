@@ -2,8 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Bot, FileText, Loader2, MessageCircle, Pause, Play, Plus, Send, ShieldAlert, SlidersHorizontal, Sparkles, Trash2, User } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type Agent, type AgentsData, type Approval, type Decision, type Job, type Proposal, type SessionSummary, type TimelineItem } from "../api";
+import { api, type Agent, type AgentsData, type Approval, type Decision, type Job, type Proposal, type Task, type SessionSummary, type TimelineItem } from "../api";
 import { ApprovalCard } from "../components/ApprovalCard";
+import { AttachedTask, TaskPicker } from "../components/TaskPicker";
 import { Field, Notice, PageHeader, Segmented, Sheet, SkeletonList, useToast } from "../components/ui";
 import { agentHue, agentLabel, nowText } from "../lib/agents";
 import type { Area } from "../lib/areas";
@@ -177,18 +178,22 @@ function Timelines({ agents, timeline, isToday }: { agents: Hued[]; timeline: Re
 /* ---- Agent card --------------------------------------------------------------- */
 
 function Card({ a, boss, onOpen }: { a: Hued; boss?: Hued; onOpen: () => void }) {
+  const qc = useQueryClient();
   const toast = useToast();
   const inval = useInvalidate();
   const [job, setJob] = useState("");
+  const [task, setTask] = useState<Task | null>(null);
   const pause = useMutation({
     mutationFn: () => api.post(`/api/agents/${a.id}/pause`, { paused: !a.paused }),
     onSuccess: () => { inval(); toast(a.paused ? `${agentLabel(a)} resumed` : `${agentLabel(a)} paused`, a.hue); },
     onError: (e: Error) => toast(e.message, "danger"),
   });
   const give = useMutation({
-    mutationFn: () => api.post<{ session_id?: string; job?: Job }>(`/api/agents/${a.id}/jobs`, { text: job }),
+    mutationFn: () => api.post<{ session_id?: string; job?: Job }>(`/api/agents/${a.id}/jobs`, { text: job, task_id: task?.id }),
     onSuccess: (r) => {
       setJob("");
+      setTask(null);
+      qc.invalidateQueries({ queryKey: ["tasks"] });
       inval();
       toast(r.session_id ? `${agentLabel(a)} is on it` : "Writing a fresh brief", a.hue);
     },
@@ -232,13 +237,17 @@ function Card({ a, boss, onOpen }: { a: Hued; boss?: Hued; onOpen: () => void })
           </button>
         </div>
       ) : (
-        <form className="agent-job" onSubmit={(e) => { e.preventDefault(); if (job.trim()) give.mutate(); }}>
-          <label className="sr-only" htmlFor={`job-${a.id}`}>Give {agentLabel(a)} a job</label>
-          <input id={`job-${a.id}`} className="input" placeholder={a.paused ? "Paused" : "Give it a job…"} value={job} onChange={(e) => setJob(e.target.value)} disabled={a.paused} />
-          <button className="btn btn-primary btn-icon" aria-label="Send job" disabled={!job.trim() || give.isPending || a.paused}>
-            {give.isPending ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
-          </button>
-        </form>
+        <div className="agent-job-wrap">
+          {task && <div><AttachedTask task={task} onRemove={() => setTask(null)} /></div>}
+          <form className="agent-job" onSubmit={(e) => { e.preventDefault(); if (job.trim() || task) give.mutate(); }}>
+            <TaskPicker value={task} onChange={setTask} disabled={a.paused} />
+            <label className="sr-only" htmlFor={`job-${a.id}`}>Give {agentLabel(a)} a job</label>
+            <input id={`job-${a.id}`} className="input" placeholder={a.paused ? "Paused" : task ? "Add a note (optional)" : "Give it a job…"} value={job} onChange={(e) => setJob(e.target.value)} disabled={a.paused} />
+            <button className="btn btn-primary btn-icon" aria-label="Send job" disabled={(!job.trim() && !task) || give.isPending || a.paused}>
+              {give.isPending ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
+            </button>
+          </form>
+        </div>
       )}
 
       <footer className="agent-foot">

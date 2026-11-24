@@ -304,8 +304,12 @@ class Sessions:
             self._live[sid] = live
             return live
 
-    def send(self, sid: str, text: str) -> dict[str, Any]:
+    def send(self, sid: str, text: str, task: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Give the agent a message. With `task` (a task-list entry), the agent gets its details
+        and is asked to keep it up to date; the task records who is working on it."""
         text = text.strip()
+        if not text and task:
+            text = "Please work on this task."
         if not text:
             raise ValueError("Type a message first.")
         self.app.check_not_paused(self._store(sid).load().get("agent"))
@@ -315,11 +319,16 @@ class Sessions:
                 raise RuntimeError("Gabe is still working on your last message.")
             live.running = True
         user_msg = {"id": new_id(), "role": "user", "text": text, "ts": now(), "status": "done", "activity": []}
+        prompt = text
+        if task:
+            user_msg["task"] = {"id": task["id"], "title": task["title"]}
+            prompt = f"{text}\n\n{task_brief(task)}"
         reply = {"id": new_id(), "role": "assistant", "text": "", "ts": now(), "status": "working", "activity": []}
 
         def add(s):
             if not s["messages"] and s["title"] == "New conversation":
-                s["title"] = text[:60] + ("…" if len(text) > 60 else "")
+                label = task["title"] if task and text == "Please work on this task." else text
+                s["title"] = label[:60] + ("…" if len(label) > 60 else "")
             s["messages"] += [user_msg, reply]
             s["status"] = "running"
             s["updated"] = now()
@@ -331,7 +340,7 @@ class Sessions:
 
         def run():
             try:
-                answer = live.agent.send(text)
+                answer = live.agent.send(prompt)
                 patch = {"text": answer, "status": "done"}
             except Exception as e:  # shown in the chat, not raised
                 patch = {"text": friendly_error(e), "status": "error"}
@@ -495,6 +504,17 @@ class WebState:
 
     def job(self, name: str) -> dict[str, Any] | None:
         return self.jobs.get(name)
+
+
+def task_brief(task: dict[str, Any]) -> str:
+    """The attached task, written out for the agent."""
+    lines = [f"Attached task (id {task['id']}): {task['title']}"]
+    for key, label in (("owner", "Owner"), ("due", "Due"), ("status", "Status"), ("project", "Project"), ("notes", "Notes")):
+        if task.get(key):
+            lines.append(f"- {label}: {str(task[key]).replace('_', ' ') if key == 'status' else task[key]}")
+    lines.append(f"Keep this task up to date as you work: if you can update tasks, set its status and add "
+                 f"notes with update_task (id {task['id']}); otherwise say in your reply what should change.")
+    return "\n".join(lines)
 
 
 def json_copy(x):

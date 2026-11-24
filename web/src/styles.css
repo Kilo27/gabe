@@ -741,3 +741,33 @@ li[data-unread="true"] .mail-from::before { background: var(--inbox); }
 .question-icon { background: var(--ask); }
 .approval.question[data-status="pending"] { border-color: color-mix(in oklab, var(--ask) 55%, var(--line)); box-shadow: 0 0 0 3px color-mix(in oklab, var(--ask) 16%, transparent), var(--shadow); }
 .question-text { font-size: 16px; font-weight: 600; white-space: pre-wrap; }
+
+/* Attaching a task to a request */
+.task-picker { position: relative; flex: none; }
+.btn-attached { background: var(--hue-soft); border-color: var(--hue-ink); color: var(--hue-ink); }
+.task-pop {
+  position: fixed; z-index: 60;
+  background: var(--raised); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-pop);
+  padding: 8px; display: flex; flex-direction: column; gap: 6px;
+}
+.task-pop ul { list-style: none; margin: 0; padding: 0; max-height: 280px; overflow-y: auto; }
+.task-pop li button {
+  width: 100%; display: flex; gap: 10px; align-items: flex-start; text-align: left; border: 0; background: none;
+  padding: 8px 10px; border-radius: 9px; cursor: pointer; color: var(--ink);
+}
+.task-pop li button svg { color: var(--hue-ink); margin-top: 2px; flex: none; }
+.task-pop li button:hover, .task-pop li button[aria-pressed="true"] { background: var(--hue-soft); }
+.task-pop li button .grow { display: flex; flex-direction: column; }
+.task-pop-title { font-weight: 600; }
+.attached-task {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 6px 4px 10px; border-radius: 99px;
+  background: var(--hue-soft); color: var(--hue-ink); font-size: 13px; font-weight: 650;
+}
+.attached-task-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attached-task button { border: 0; background: none; color: inherit; cursor: pointer; display: grid; place-items: center; padding: 2px; border-radius: 50%; }
+.attached-task button:hover { background: color-mix(in oklab, var(--hue) 30%, transparent); }
+.agent-job-wrap { display: flex; flex-direction: column; gap: 8px; }
+.bubble-task { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 650; padding: 3px 10px; border-radius: 99px; background: var(--tasks-ink); color: #fff; }
+.handled-by { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--ask-ink); text-decoration: none; font-weight: 600; }
+.handled-by:hover { text-decoration: underline; }
+.give-bot { display: flex; flex-direction: column; gap: 12px; padding: 14px; border-radius: 12px; background: var(--hue-soft); }

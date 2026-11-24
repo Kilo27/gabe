@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeft, ChevronDown, Info, Loader2, MessageCircle, Plus, Send, ShieldAlert, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckSquare, ChevronDown, Info, Loader2, MessageCircle, Plus, Send, ShieldAlert, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, useNavigate, useParams } from "react-router-dom";
-import { api, type Approval, type Message, type Session, type SessionSummary } from "../api";
+import { api, type Approval, type Message, type Session, type SessionSummary, type Task } from "../api";
 import { ApprovalCard } from "../components/ApprovalCard";
+import { AttachedTask, TaskPicker } from "../components/TaskPicker";
 import { useOverview } from "../components/Shell";
 import { Markdown, Notice, PageHeader, SkeletonList, useToast } from "../components/ui";
 import { when } from "../lib/format";
@@ -65,6 +66,7 @@ function Thread({ id }: { id: string }) {
   const nav = useNavigate();
   const toast = useToast();
   const [text, setText] = useState("");
+  const [task, setTask] = useState<Task | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const session = useQuery({
     queryKey: ["session", id],
@@ -81,9 +83,11 @@ function Thread({ id }: { id: string }) {
   const byId = new Map((approvals.data ?? []).map((a) => [a.id, a]));
 
   const send = useMutation({
-    mutationFn: (t: string) => api.post<Session>(`/api/sessions/${id}/messages`, { text: t }),
+    mutationFn: (t: string) => api.post<Session>(`/api/sessions/${id}/messages`, { text: t, task_id: task?.id }),
     onSuccess: (data) => {
       setText("");
+      setTask(null);
+      qc.invalidateQueries({ queryKey: ["tasks"] });
       qc.setQueryData(["session", id], data);
       qc.invalidateQueries({ queryKey: ["sessions"] });
     },
@@ -105,7 +109,7 @@ function Thread({ id }: { id: string }) {
   if (session.isLoading) return <div className="thread"><SkeletonList rows={4} /></div>;
   if (!s) return <div className="thread"><Notice hue="danger" icon={AlertTriangle} title="This conversation doesn't exist any more." action={<Link className="btn btn-sm" to="/ask">Back</Link>} /></div>;
 
-  const submit = () => text.trim() && !running && send.mutate(text.trim());
+  const submit = () => (text.trim() || task) && !running && send.mutate(text.trim());
 
   return (
     <div className="thread">
@@ -124,7 +128,10 @@ function Thread({ id }: { id: string }) {
         {s.messages.map((m) =>
           m.role === "user" ? (
             <div key={m.id} className="msg msg-user" data-area="ask">
-              <div className="bubble">{m.text}</div>
+              <div className="bubble">
+                {m.task && <div style={{ marginBottom: 6 }}><span className="bubble-task"><CheckSquare size={13} /> {m.task.title}</span></div>}
+                {m.text}
+              </div>
               <span className="faint">{when(m.ts)}</span>
             </div>
           ) : (
@@ -149,7 +156,9 @@ function Thread({ id }: { id: string }) {
         )}
         <div ref={endRef} />
       </div>
+      {task && <div><AttachedTask task={task} onRemove={() => setTask(null)} /></div>}
       <form className="composer" data-area="ask" onSubmit={(e) => { e.preventDefault(); submit(); }}>
+        <TaskPicker value={task} onChange={setTask} disabled={running} />
         <label htmlFor="reply" className="sr-only">Message Gabe</label>
         <textarea
           id="reply"
@@ -160,7 +169,7 @@ function Thread({ id }: { id: string }) {
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }}
         />
-        <button className="btn btn-primary" disabled={!text.trim() || running || send.isPending} aria-label="Send">
+        <button className="btn btn-primary" disabled={(!text.trim() && !task) || running || send.isPending} aria-label="Send">
           <Send size={16} /> <span className="hide-sm">Send</span>
         </button>
       </form>

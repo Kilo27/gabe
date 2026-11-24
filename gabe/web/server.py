@@ -250,10 +250,12 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
             state.check_not_paused(agent)
         except RuntimeError as e:
             bad(str(e), 409)
+        require_task(payload.get("task_id"))
         s = state.sessions.create(agent=agent)
-        if payload.get("text"):
+        task = attach_task(payload.get("task_id"), agent, s["id"])
+        if payload.get("text") or task:
             try:
-                state.sessions.send(s["id"], payload["text"])
+                state.sessions.send(s["id"], str(payload.get("text") or ""), task)
             except (ValueError, RuntimeError) as e:
                 bad(str(e), 409)
             except Exception as e:
@@ -272,7 +274,9 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
         if not state.sessions.get(sid):
             bad("That conversation doesn't exist any more.", 404)
         try:
-            state.sessions.send(sid, str(payload.get("text", "")))
+            sess = state.sessions.get(sid) or {}
+            task = attach_task(payload.get("task_id"), sess.get("agent"), sid)
+            state.sessions.send(sid, str(payload.get("text", "")), task)
         except (ValueError, RuntimeError) as e:
             bad(str(e), 409)
         return state.sessions.get(sid)
@@ -331,6 +335,35 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
             return state.approvals.decide(aid, approve, args, str(payload.get("note", "")).strip(), PERSON)
         except ValueError as e:
             bad(str(e), 409)
+
+    # -- tasks attached to a request ------------------------------------------------
+
+    def require_task(task_id) -> None:
+        if task_id and not any(t["id"] == task_id for t in tasks_store().load()["tasks"]):
+            bad("That task doesn't exist any more.", 404)
+
+    def attach_task(task_id, member: str | None, sid: str) -> dict[str, Any] | None:
+        """Look up a task being attached to a request and note on it which agent is working on it."""
+        if not task_id:
+            return None
+        cfg = state.config()
+        if member:
+            m = cfg.team().get(member)
+            who = m.name if m else member
+        else:
+            who = cfg.assistant_name
+
+        def mark(d):
+            for t in d["tasks"]:
+                if t["id"] == task_id:
+                    t["handled_by"] = {"agent": who, "agent_id": member or "chief", "session_id": sid, "at": now()}
+                    return dict(t)
+            return None
+
+        task = tasks_store().update(mark)
+        if task is None:
+            bad("That task doesn't exist any more.", 404)
+        return task
 
     # -- tasks -----------------------------------------------------------------
 
@@ -1056,15 +1089,17 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
         text = str(payload.get("text", "")).strip()
         if row["kind"] == "briefing":
             return {"job": run_brief()}
-        if not text:
+        if not text and not payload.get("task_id"):
             bad("Say what the job is.")
         member = None if row["kind"] == "chief" else aid
         try:
             state.check_not_paused(member)
         except RuntimeError as e:
             bad(str(e), 409)
-        s = state.sessions.create(title=text[:60] + ("…" if len(text) > 60 else ""), agent=member)
-        state.sessions.send(s["id"], text)
+        require_task(payload.get("task_id"))
+        s = state.sessions.create(agent=member)
+        task = attach_task(payload.get("task_id"), member, s["id"])
+        state.sessions.send(s["id"], text, task)
         return {"session_id": s["id"]}
 
     @app.post("/api/agents/request")

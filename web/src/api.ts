@@ -83,6 +83,7 @@ export type EmailStatus = { state: "off" | "practice" | "missing_file" | "discon
 export type Task = {
   id: string; title: string; owner: string; due: string | null; notes: string; project: string;
   status: TaskStatus; created: string; source?: string;
+  handled_by?: { agent: string; agent_id: string; session_id: string; at: string };
 };
 export type TaskStatus = "open" | "in_progress" | "blocked" | "done" | "cancelled";
 
@@ -101,7 +102,7 @@ export type ActivityItem =
   | { kind: "thought"; agent: string; text: string; ts: string }
   | { kind: "approval"; approval_id: string; tool: string; ts: string };
 
-export type Message = { id: string; role: "user" | "assistant"; text: string; ts: string; status: "done" | "working" | "waiting" | "error"; activity: ActivityItem[] };
+export type Message = { task?: { id: string; title: string }; id: string; role: "user" | "assistant"; text: string; ts: string; status: "done" | "working" | "waiting" | "error"; activity: ActivityItem[] };
 export type Session = { agent?: string | null; id: string; title: string; created: string; updated: string; status: "idle" | "running"; messages: Message[]; memory_reset?: boolean };
 export type SessionSummary = { agent?: string | null; id: string; title: string; updated: string; status: string; count: number; preview: string };
 

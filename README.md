@@ -43,6 +43,9 @@ gabe app                        # run it from source instead
 - The Anthropic API key is entered in Settings → AI model and kept in the macOS Keychain.
 - Gmail: Settings → Email → Choose file… (the Google OAuth client JSON), then Connect Gmail.
 - The daily brief is written on schedule while the app is open.
+- Attach a task when you give a bot a job (the paperclip on an agent card or in a
+  conversation), or use "Give to a bot" on a task. The bot gets the task's details and is
+  asked to keep it updated, and the task shows which bot has it.
 - When Gabe or a bot asks you something (`ask_user`) or needs an approval, you get a macOS
   notification (click it to answer), a Dock badge with the count, and a banner in the app.
   The run waits for your answer. The first time, macOS asks to allow Gabe's notifications.
