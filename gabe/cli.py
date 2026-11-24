@@ -15,7 +15,8 @@ from gabe.config import load_config
 from gabe.policy import deny_all
 from gabe.tools.registry import Tool
 
-DIM, BOLD, RESET = "\033[2m", "\033[1m", "\033[0m"
+# No colour codes when output goes to a log file (e.g. under launchd).
+DIM, BOLD, RESET = ("\033[2m", "\033[1m", "\033[0m") if sys.stderr.isatty() else ("", "", "")
 
 
 def terminal_approver(tool: Tool, args: dict[str, Any]) -> bool:

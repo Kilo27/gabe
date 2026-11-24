@@ -95,6 +95,11 @@ Gmail account, with plain text and formatted HTML versions. `me` means the conne
 mailbox itself. Recipients are fixed in config, not chosen by the model, so this send
 skips the approval prompt but is still audited. Use `gabe brief --no-email` to skip it.
 
+On macOS, `scripts/install_launchd.sh` installs a LaunchAgent that runs `gabe brief`
+at `briefing.time` on `briefing.days`, using the Mac's local timezone. A run missed
+while the Mac was asleep fires when it wakes. Logs go to `data/logs/`. Re-run the
+script after changing the schedule, or run `scripts/install_launchd.sh uninstall` to remove it.
+
 ## Planned
 
 - Web UI: [docs/UI_PLAN.md](docs/UI_PLAN.md)
