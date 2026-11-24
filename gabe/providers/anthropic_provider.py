@@ -115,9 +115,13 @@ class AnthropicConversation(Conversation):
         detail = None
         if stop == "refusal" and getattr(msg, "stop_details", None):
             detail = f"{msg.stop_details.category}: {msg.stop_details.explanation}"
+        # Normalised (see gabe/usage.py). Anthropic's input_tokens already excludes cached input.
+        # `model` is the one that answered: a refusal fallback can serve the turn on another model.
         usage = {
+            "model": getattr(msg, "model", None) or self.p.model,
             "input_tokens": msg.usage.input_tokens,
+            "cache_read_tokens": getattr(msg.usage, "cache_read_input_tokens", None) or 0,
+            "cache_write_tokens": getattr(msg.usage, "cache_creation_input_tokens", None) or 0,
             "output_tokens": msg.usage.output_tokens,
-            "cache_read_input_tokens": getattr(msg.usage, "cache_read_input_tokens", None),
         }
         return StepResult(text=text, tool_calls=calls, stop=stop, usage=usage, detail=detail)

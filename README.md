@@ -143,3 +143,18 @@ Move them into a team file to edit them from the page.
 - Slack integration: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#roadmap)
 
 Every tool call is appended to `data/audit.jsonl`.
+
+## Usage and cost
+
+Every model call is appended to `data/usage.jsonl` with the user, the kind of task
+(`chat`, `brief`), the agent or delegate, the model that answered, and its input,
+cached-input and output tokens. The user is `--user`, else `$GABE_USER`, else your login.
+
+```bash
+gabe usage                          # by user, task and model, all time
+gabe usage --since 2026-11-01 --by user
+gabe usage --by model,agent
+```
+
+Estimated cost uses the `pricing:` table in `config/gabe.yaml` ($ per million tokens).
+Models missing from it are counted but not priced, and the report says so.

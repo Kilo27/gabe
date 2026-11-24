@@ -11,6 +11,7 @@ from gabe.prompts import chief_of_staff_prompt, delegate_prompt
 from gabe.providers import Provider, make_provider
 from gabe.team import CHIEF_ID, Member, Team
 from gabe.tools.registry import Risk, Tool, ToolRegistry, schema
+from gabe.usage import UsageLog, resolve_user
 
 
 def base_registry(cfg: Config) -> ToolRegistry:
@@ -26,6 +27,8 @@ def build_gabe(
     on_event: EventHandler = _ignore,
     provider: Provider | None = None,
     team: Team | None = None,
+    user: str | None = None,
+    task: str = "chat",
 ) -> Agent:
     provider = provider or make_provider(cfg.provider)
     policy = Policy.from_config(cfg.policy)
@@ -33,6 +36,9 @@ def build_gabe(
     tools = base_registry(cfg)
     team = team if team is not None else cfg.team()
     available = {t.name for t in tools.tools()}
+    usage = UsageLog(cfg.data_dir / "usage.jsonl")
+    user = resolve_user(user)
+    job = task  # the delegate tool's own `task` argument is the team member's instructions
 
     def skills_of(member: Member) -> list[str] | None:
         # Skills whose integration isn't set up right now (e.g. email in outbox mode) are skipped,
@@ -88,6 +94,9 @@ def build_gabe(
             audit=audit,
             on_event=on_event,
             path=path,
+            usage=usage,
+            user=user,
+            task=job,
         )
 
     top = (cfg.assistant_name,)
@@ -101,4 +110,7 @@ def build_gabe(
         audit=audit,
         on_event=on_event,
         path=top,
+        usage=usage,
+        user=user,
+        task=task,
     )

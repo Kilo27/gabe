@@ -52,6 +52,8 @@ class Config:
             for d in self.delegates
         ])
 
+    pricing: dict[str, dict[str, float]] = field(default_factory=dict)  # model -> $/M tokens
+
     def playbooks(self) -> list[tuple[str, str]]:
         if not self.playbooks_dir or not self.playbooks_dir.is_dir():
             return []
@@ -101,4 +103,5 @@ def load_config(path: str | os.PathLike[str] | None = None) -> Config:
         delegates=delegates,
         briefing=raw.get("briefing") or {},
         team_file=rel(raw.get("team_file")),
+        pricing=raw.get("pricing") or {},
     )
