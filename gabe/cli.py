@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from typing import Any
 
@@ -33,8 +34,25 @@ def print_event(kind: str, data: dict[str, Any]) -> None:
         print(f"{DIM}  · {data['agent']}: {data['text'].strip()[:200]}{RESET}", file=sys.stderr)
 
 
+def load_dotenv(path: str = ".env") -> None:
+    """Load KEY=VALUE lines from .env into the environment (existing vars win)."""
+    try:
+        lines = open(path).read().splitlines()
+    except FileNotFoundError:
+        return
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        value = value.strip().strip('"').strip("'")
+        if value:
+            os.environ.setdefault(key.strip(), value)
+
+
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="gabe", description="Gabe, your AI chief of staff.")
+    load_dotenv()
+    ap =argparse.ArgumentParser(prog="gabe", description="Gabe, your AI chief of staff.")
     ap.add_argument("-c", "--config", help="Path to company config (default: $GABE_CONFIG or config/gabe.yaml)")
     ap.add_argument("-m", "--message", help="Run a single request and exit")
     ap.add_argument("--unattended", action="store_true", help="Refuse every action that needs approval")
