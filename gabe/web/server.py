@@ -642,11 +642,23 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
         company = dict(cfg.company)
         b = BriefingSettings.from_config(cfg)
         playbooks = [{"name": n, "text": t} for n, t in cfg.playbooks()]
+        rules = policy_rows(cfg)  # builds the registry first, so MCP server status is current
         integrations = []
         for spec in cfg.integrations:
             entry = {"name": spec.name, "settings": {k: v for k, v in spec.settings.items() if "key" not in k.lower()}}
             if spec.name == "email":
                 entry["status"] = gmail_status()
+            if spec.name == "mcp":
+                # Server configs carry tokens (env, headers, args): only names and state go out.
+                from gabe.integrations import mcp as mcp_integration
+
+                live = mcp_integration.status()
+                entry["settings"] = {}
+                entry["servers"] = [
+                    {"name": name, **live.get(name, {"state": "error", "error": "not connected", "tools": 0,
+                                                     "transport": "http" if (s or {}).get("url") else "stdio"})}
+                    for name, s in sorted((spec.settings.get("servers") or {}).items())
+                ]
             integrations.append(entry)
         provider = {k: v for k, v in (cfg.provider or {}).items() if "key" not in k.lower()}
         provider["key_set"] = bool(os.environ.get("ANTHROPIC_API_KEY"))
@@ -661,7 +673,7 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
             "briefing": {"time": b.time, "days": b.days, "email_to": b.email_to},
             "policy": {
                 "defaults": {r.value: d.value for r, d in Policy.from_config(cfg.policy).defaults.items()},
-                "tools": policy_rows(cfg),
+                "tools": rules,
                 "integrations": (raw.get("policy") or {}).get("integrations") or {},
             },
             "all_tools": team_skills(cfg),

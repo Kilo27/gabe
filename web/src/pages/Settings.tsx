@@ -12,6 +12,7 @@ const TABS = [
   ["brief", "Daily brief"],
   ["rules", "Approval rules"],
   ["email", "Email"],
+  ["connections", "Connections"],
   ["playbooks", "Playbooks"],
   ["model", "API key"],
 ] as const;
@@ -221,6 +222,25 @@ function Email({ s }: { s: Settings }) {
   );
 }
 
+function Connections({ s }: { s: Settings }) {
+  const servers = s.integrations.find((i) => i.name === "mcp")?.servers ?? [];
+  return (
+    <Section title="MCP servers">
+      {servers.length === 0 ? <p className="muted">None.</p> : (
+        <ul className="mailboxes">
+          {servers.map((m) => (
+            <li key={m.name} data-area={m.state === "connected" ? "inbox" : "danger"}>
+              {m.state === "connected" ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}
+              <span className="grow">{humanize(m.name)}</span>
+              <span className="faint">{m.state === "connected" ? `${m.tools} ${m.tools === 1 ? "action" : "actions"}` : m.error}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Section>
+  );
+}
+
 function Playbooks({ s }: { s: Settings }) {
   const qc = useQueryClient();
   const toast = useToast();
@@ -318,7 +338,7 @@ function Model({ s }: { s: Settings }) {
 export default function SettingsPage() {
   const { tab = "company" } = useParams<{ tab: Tab }>();
   const { data, isLoading, error } = useQuery({ queryKey: ["settings"], queryFn: () => api.get<Settings>("/api/settings") });
-  const Body = { company: Company, brief: Brief, rules: Rules, email: Email, playbooks: Playbooks, model: Model }[tab as Tab] ?? Company;
+  const Body = { company: Company, brief: Brief, rules: Rules, email: Email, connections: Connections, playbooks: Playbooks, model: Model }[tab as Tab] ?? Company;
   return (
     <>
       <PageHeader area="settings" />

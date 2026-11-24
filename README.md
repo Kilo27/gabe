@@ -118,6 +118,40 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design.
 - `tasks`: create, list and update tasks with owners and due dates
 - `email`: Gmail / Google Workspace, one or more mailboxes (`settings.accounts`; add them in the web app) (`search_email`, `read_email`, `draft_email`,
   `send_email`, `mark_email_read`), or an `outbox` backend that saves outgoing mail to disk without delivering it. See [docs/GMAIL_SETUP.md](docs/GMAIL_SETUP.md).
+- `mcp`: any [MCP](https://modelcontextprotocol.io) server's tools (see below).
+
+## MCP servers
+
+Plug in existing MCP servers (Notion, Linear, Slack, Google Calendar...) with
+`pip install -e '.[mcp]'` and an `mcp` entry under `integrations:`:
+
+```yaml
+  - name: mcp
+    settings:
+      call_timeout: 60                      # seconds per tool call
+      servers:
+        notion:                             # stdio: Gabe starts the process
+          command: npx
+          args: ["-y", "@notionhq/notion-mcp-server"]
+          env: {NOTION_TOKEN: "${NOTION_TOKEN}"}       # ${VAR} from the environment
+          tools: {API-post-search: read}    # per-tool risk
+        linear:                             # streamable HTTP
+          url: https://mcp.linear.app/mcp
+          headers: {Authorization: "Bearer ${LINEAR_TOKEN}"}
+          include: [list_issues, create_issue]         # or exclude: [...]
+```
+
+- Tools are named `<server>__<tool>` and can be given to team members like any action.
+- Risk is `external` (asks first by default) unless you set `risk:` for the server or
+  `tools:` per tool. A server's own read-only hints are ignored unless
+  `trust_annotations: true`; nothing else ever lowers risk.
+- Policy works by server name: `policy: {integrations: {notion: allow, linear: ask}}`.
+- Servers start once and stay connected; one that fails is skipped (its tools are simply
+  missing) and retried a minute later. Status is in Settings → Connections; stdio servers'
+  stderr goes to `data/mcp/logs/<server>.log`.
+- Gabe.app launches stdio servers with a minimal PATH: use an absolute `command`, or set
+  `PATH` in `env` (e.g. `/opt/homebrew/bin:/usr/bin:/bin` for `npx`).
+- Remote servers take bearer headers only; OAuth sign-in isn't supported yet.
 
 ## Daily briefing
 

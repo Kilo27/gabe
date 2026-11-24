@@ -51,6 +51,26 @@ integrations:
     settings:
       backend: gmail       # gmail | outbox (outbox writes to data/email/outbox, sends nothing)
       credentials_file: gmail_client_secret.json   # OAuth client from Google Cloud; see docs/GMAIL_SETUP.md
+  # MCP servers: each server's tools become actions named <server>__<tool>.
+  # Needs `pip install 'gabe[mcp]'`. Tools are `external` unless set otherwise below;
+  # policy.integrations takes the server name (e.g. {notion: ask}).
+  # From the desktop app, stdio servers get a minimal PATH: give `command` as an absolute
+  # path, or set PATH in `env`.
+  # - name: mcp
+  #   settings:
+  #     call_timeout: 60          # seconds per tool call
+  #     servers:
+  #       notion:
+  #         command: npx          # stdio
+  #         args: ["-y", "@notionhq/notion-mcp-server"]
+  #         env: {NOTION_TOKEN: "${NOTION_TOKEN}"}   # ${VAR} comes from the environment
+  #         # risk: external                          # default for this server's tools
+  #         # tools: {search: read, create_page: external}   # per-tool risk
+  #         # include: [search, fetch]                # only these (or exclude: [...])
+  #         # trust_annotations: false                # true: readOnlyHint tools become read
+  #       linear:
+  #         url: https://mcp.linear.app/mcp           # streamable HTTP
+  #         headers: {Authorization: "Bearer ${LINEAR_TOKEN}"}
 
 # What may run unattended. Decisions: allow | ask | deny.
 policy:

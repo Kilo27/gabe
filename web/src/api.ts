@@ -111,6 +111,8 @@ export type AuditRow = { ts: string; agent: string; tool: string; input: any; ou
 export type Email = { account?: string; id: string; from: string; to: string; subject: string; date: string; unread: boolean; snippet: string };
 export type Triage = { category: "reply" | "fyi" | "ignore"; owner: string; reason: string };
 
+export type McpServer = { name: string; state: "connected" | "error"; error: string | null; tools: number; transport: "stdio" | "http" };
+
 export type PolicyRow = { name: string; risk: string; integration: string; description: string; decision: Decision; source: string };
 export type Decision = "allow" | "ask" | "deny";
 export type Settings = {
@@ -121,7 +123,7 @@ export type Settings = {
   delegates: { name: string; description: string; instructions: string; tools: string[] | null }[];
   all_tools: string[];
   provider: Record<string, any>;
-  integrations: { name: string; settings: Record<string, any>; status?: EmailStatus }[];
+  integrations: { name: string; settings: Record<string, any>; status?: EmailStatus; servers?: McpServer[] }[];
   playbooks: { name: string; text: string }[];
   usage: { date: string; input: number; output: number; cached: number; steps: number }[];
   config_path: string;
