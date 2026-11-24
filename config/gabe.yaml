@@ -1,0 +1,64 @@
+# Gabe company configuration. Copy and adapt per company; nothing company-specific
+# belongs in Gabe's code. Paths are relative to this file.
+
+assistant:
+  name: Gabe
+
+company:
+  name: Example Co
+  timezone: Europe/Dublin
+  profile: |
+    Example Co is a 40-person software company. Leadership: Alex (CEO), Sam (COO),
+    Jordan (Head of Engineering). Weekly leadership meeting is Monday 10:00.
+  # Any other key/value pairs here are shown to Gabe as company facts.
+  working_hours: "Mon-Fri 09:00-17:30"
+
+# Model backend. Today: Anthropic API. Later: a local GLM server.
+provider:
+  kind: anthropic
+  model: claude-opus-5-5
+  effort: high            # low | medium | high | xhigh | max
+  refusal_fallback: true  # re-run a declined turn on a fallback model server-side
+# provider:
+#   kind: openai_compatible
+#   base_url: http://gpu-box.local:8000/v1   # vLLM / SGLang serving GLM
+#   model: glm-5.3
+#   max_tokens: 8192
+
+data_dir: ../data
+playbooks_dir: playbooks
+
+# Built-ins by short name; company-specific ones by dotted module path,
+# e.g. `- name: acme_gabe.hubspot` with its own settings.
+integrations:
+  - core
+  - memory
+  - tasks
+  - name: email
+    settings:
+      backend: outbox      # writes to data/email/outbox instead of sending
+      from_address: gabe@example.com
+
+# What may run unattended. Decisions: allow | ask | deny.
+policy:
+  defaults:
+    read: allow
+    write: allow
+    external: ask
+  tools: {}                # e.g. {send_email: deny}
+  integrations: {}         # e.g. {email: ask}
+
+# Specialists Gabe can hand work to. `tools` limits what each one can use.
+delegates:
+  scheduler:
+    description: Plans deadlines, reviews workloads and chases overdue tasks.
+    instructions: |
+      You own the task list. Check the current time first, then review tasks for
+      what is overdue, due soon, unowned or blocked, and propose concrete fixes.
+    tools: [get_current_time, list_tasks, update_task, create_task]
+  comms:
+    description: Drafts and sends internal and external communications.
+    instructions: |
+      Write in the company's voice: plain, warm, brief. Check memory for context on
+      recipients before writing.
+    tools: [recall, send_email]
