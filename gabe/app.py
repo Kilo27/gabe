@@ -23,6 +23,27 @@ def team_skills(cfg: Config) -> list[str]:
     return sorted([t.name for t in base_registry(cfg).tools()] + [HIRE])
 
 
+_GENERIC = {"helper", "assistant", "agent", "team", "member", "specialist", "lead", "manager", "keeper",
+            "writer", "mapper", "scoper", "owner", "with", "that", "from", "into", "their", "they", "them",
+            "about", "which", "what", "keeps", "handles", "work", "tasks", "project", "using", "including",
+            "plans", "makes", "sure", "each", "every", "other", "company"}
+
+
+def _words(text: str) -> set[str]:
+    import re
+
+    return {w for w in re.findall(r"[a-z]+", text.lower()) if len(w) >= 4 and w not in _GENERIC}
+
+
+def overlaps(name: str, job: str, member: Member) -> bool:
+    """Rough check that a proposed member covers the same ground as an existing one."""
+    a, b = _words(name), _words(member.name)
+    if a and b and len(a & b) / min(len(a), len(b)) >= 0.5:
+        return True
+    ja, jb = _words(f"{name} {job}"), _words(f"{member.name} {member.job}")
+    return bool(ja and jb) and len(ja & jb) / len(ja | jb) >= 0.35
+
+
 def base_registry(cfg: Config) -> ToolRegistry:
     """Every tool the company's integrations provide (no delegation)."""
     registry = ToolRegistry()
@@ -103,8 +124,16 @@ def build_gabe(
             creator.freedom, "standard", key=FREEDOM_ORDER.index))
         levels = FREEDOM_ORDER[: cap + 1]
 
-        def add_team_member(name: str, job: str, instructions: str, skills: list[str],
-                            reports_to: str = "", freedom: str = DEFAULT_FREEDOM) -> str:
+        def where(manager: str) -> tuple[str, ...]:
+            """The chain of names from this agent down to `manager` (for events and the audit)."""
+            chain = [m.name for m in reversed(team.chain(manager)) if m.id not in team_ids_above(creator_id)]
+            return (*path, *chain) if manager != creator_id else path
+
+        def team_ids_above(member_id: str) -> set[str]:
+            return {m.id for m in team.chain(member_id)} if member_id != CHIEF_ID else set()
+
+        def add_team_member(name: str, job: str, instructions: str, skills: list[str], reports_to: str,
+                            why: str, first_task: str, freedom: str = DEFAULT_FREEDOM) -> str:
             manager = reports_to.strip() or creator_id
             # Refusals raise, so they show as failed (not done) in the activity log.
             if manager != creator_id and manager not in branch(creator_id):
@@ -115,6 +144,16 @@ def build_gabe(
                 raise ValueError(f"You can't give actions you don't have yourself: {', '.join(extra)}. Not added.")
             if freedom not in levels:
                 raise ValueError(f"Freedom must be one of: {', '.join(levels)}. Not added.")
+            if not first_task.strip():
+                raise ValueError("Give it a first_task to start on now, so it doesn't sit idle. Not added.")
+            # Work that belongs to an existing member's area goes under that member, not beside it.
+            near = [m for m in team.members if m.active and overlaps(name, job, m)]
+            outside = [m for m in near if manager != m.id and manager not in branch(m.id)]
+            if outside:
+                m = outside[0]
+                raise ValueError(
+                    f"This overlaps {m.name} ({m.id}: {m.job}). Give {m.name} the work with delegate, "
+                    f"or add the new member under them (reports_to: {m.id}). Not added.")
             new = Member(id="", name=name.strip(), job=job.strip(), instructions=instructions.strip(),
                          reports_to=manager, skills=sorted(set(skills)), freedom=freedom)
             try:
@@ -131,32 +170,48 @@ def build_gabe(
                     save_team(file, current)
             except TeamError as e:
                 raise ValueError(f"Not added: {e}") from e
-            team.members[:] = current.members  # so the new member can get work in this same run
+            team.members[:] = current.members
             on_event("hired", {"agent": path[-1], "path": list(path), "member": new.id, "name": new.name,
                                "reports_to": manager})
             boss = "you" if manager == creator_id else (team.get(manager).name if team.get(manager) else manager)
-            how = f" Hand it work with delegate (specialist: {new.id})." if manager == creator_id else ""
-            return f"Added {new.name} (id {new.id}), reporting to {boss}.{how}"
 
+            # It starts work straight away, handed down from its manager, so it never sits idle.
+            mpath = where(manager)
+            on_event("delegate", {"agent": mpath[-1], "path": list(mpath), "to": new.id,
+                                  "to_name": new.name, "task": first_task})
+            report = build_member(new, mpath).send(first_task)
+            on_event("report", {"agent": new.name, "path": [*mpath, new.name], "text": report})
+            return (f"Added {new.name} (id {new.id}), reporting to {boss}. It started on its first task "
+                    f"and reported back:\n{report}")
+
+        roster = "\n".join(f"- {m.id}: {m.name} (reports to {m.reports_to}). {m.job}"
+                           for m in team.members if m.active and (creator is None or m.id in branch(creator_id)))
         return Tool(
             name=HIRE,
             description=(
-                "Create a new AI assistant on the team when nobody fits the work. It reports to you, "
-                "or to someone in your team (reports_to = their id). Give it only the actions it needs. "
-                "A person approves it first."
+                "Create a new AI assistant for a lasting ROLE that keeps getting work and that no current "
+                "member covers. Not for a single task or a project's to-do list: for those, delegate to the "
+                "closest existing member. Put it under the member whose area the work belongs to (e.g. "
+                "email work under whoever does communications); report to yourself only when it starts a "
+                "genuinely new area. Team members can't ask questions or wait for replies, so write "
+                "instructions they can act on alone. It starts on first_task straight away. A person "
+                "approves it first.\nCurrent team (id: name (reports to). job):\n" + (roster or "- nobody yet")
             ),
             input_schema=schema(
                 {
-                    "name": {"type": "string", "description": "Short role name, e.g. 'Invoice chaser'."},
-                    "job": {"type": "string", "description": "One line: what it's for. Managers use this to pick it."},
-                    "instructions": {"type": "string", "description": "How it should do the job, in plain sentences."},
+                    "name": {"type": "string", "description": "Role name, e.g. 'Invoice chaser'. A role, not a task."},
+                    "job": {"type": "string", "description": "One line: the ongoing work it owns. Managers use this to pick it."},
+                    "instructions": {"type": "string", "description": "How it does the job, in plain sentences it can follow alone."},
                     "skills": {"type": "array", "items": {"type": "string"},
                                "description": f"Actions it may use, from: {', '.join(sorted(grantable))}."},
-                    "reports_to": {"type": "string", "description": "Id of its manager. Default: you."},
+                    "reports_to": {"type": "string",
+                                   "description": f"Id of the member whose area this belongs to, or '{creator_id}' for a new area."},
+                    "why": {"type": "string", "description": "For the person approving: why this needs a new member, and why it sits there."},
+                    "first_task": {"type": "string", "description": "The work it should start on now, with every detail it needs."},
                     "freedom": {"type": "string", "enum": levels,
                                 "description": "look_only = can't change anything; ask_first = asks before changes; standard = asks before contacting anyone outside."},
                 },
-                required=["name", "job", "instructions", "skills"],
+                required=["name", "job", "instructions", "skills", "reports_to", "why", "first_task"],
             ),
             handler=add_team_member,
             risk=Risk.WRITE,

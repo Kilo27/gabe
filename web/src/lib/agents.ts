@@ -28,7 +28,7 @@ export function agentLabel(a: Agent) {
 export function nowText(a: Agent): string {
   if (a.status === "paused") return a.held ? "Paused (its manager is paused)" : "Paused";
   if (a.status === "waiting") return "Waiting for your OK";
-  if (!a.now) return a.status === "working" ? "Working…" : "Idle";
+  if (!a.now) return a.status === "working" ? "Working…" : a.never_used ? "Never used" : "Idle";
   if (a.now.kind === "tool") return tool(a.now.tool).past(a.now.input);
   return a.now.text;
 }

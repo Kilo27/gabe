@@ -154,10 +154,13 @@ Gabe to propose a new member. Changes save to `config/team.yaml`.
 **Bots can add bots.** Gabe has an `add_team_member` action: when work keeps coming up that
 nobody fits, it proposes a new member under itself or under anyone on the team. Any member
 given that action (in its skills) can add members within its own branch. A person approves
-every new member first (the approval card shows the name, job, manager, freedom and actions,
-and can be edited), unless `policy.tools.add_team_member` says otherwise. A bot can only give
-a new member actions it has itself and at most its own freedom (never "trusted"), and a
-"look only" bot can't add anyone. A new member can be given work in the same run.
+every new member first (the approval card shows why, the name, job, manager, freedom, actions
+and first task, and can be edited), unless `policy.tools.add_team_member` says otherwise. A bot
+can only give a new member actions it has itself and at most its own freedom (never "trusted"),
+and a "look only" bot can't add anyone. New members are for lasting roles, not single tasks:
+Gabe must say where it belongs (`reports_to`), a member that overlaps an existing one's area
+must go under that member, and every new member starts on a `first_task` straight away. Bots
+that have never done anything show as "Never used" on the Agents screen.
 
 Controls, and how they combine:
 

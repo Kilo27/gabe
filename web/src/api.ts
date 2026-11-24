@@ -133,7 +133,7 @@ export type Agent = {
   tools: string[]; all_tools?: boolean; paused: boolean; held: boolean; freedom: string | null;
   rules: Record<string, Decision>; decisions: Record<string, Decision>;
   reports_to: string; status: AgentStatus; now: AgentNow | null; handed_by: string | null; session: string | null;
-  waiting: string[]; today: { done: number; problems: number; total: number };
+  waiting: string[]; never_used?: boolean; today: { done: number; problems: number; total: number };
 };
 export type TimelineItem = { ts: string; minute: number; tool: string; outcome: string; input: any };
 export type Proposal = { role: string; name: string; description: string; instructions: string; tools: string[]; reports_to: string; freedom: string };

@@ -228,32 +228,73 @@ def test_skill_from_an_unconnected_integration_is_skipped_not_fatal(team_config)
 
 def hire(**kw):
     args = {"name": "Invoice chaser", "job": "Chases unpaid invoices.", "instructions": "Be polite.",
-            "skills": ["list_tasks"]}
+            "skills": ["list_tasks"], "reports_to": "chief", "why": "Nobody does finance.",
+            "first_task": "Chase Acme."}
     args.update(kw)
     return tool_step(("add_team_member", args))
 
 
-def test_gabe_adds_a_bot_under_itself_and_uses_it_in_the_same_run(team_config):
-    asked = []
+def test_new_bot_starts_its_first_task_straight_away(team_config):
+    asked, events = [], []
     p = ScriptedProvider([
         hire(),
-        tool_step(("delegate", {"specialist": "invoice_chaser", "task": "Chase Acme"})),
-        done("Chased."),             # the new bot
-        done("Added and chased."),   # Gabe
+        done("Chased Acme: they pay Friday."),   # the new bot, on its first task
+        done("Added and chased."),               # Gabe
     ])
-    gabe = build_gabe(team_config, provider=p, approver=lambda t, a: asked.append(t.name) or True)
+    gabe = build_gabe(team_config, provider=p, approver=lambda t, a: asked.append(t.name) or True,
+                      on_event=lambda k, d: events.append((k, d)))
     assert gabe.send("chase invoices") == "Added and chased."
     assert asked == ["add_team_member"]  # a person approves every new bot
     new = load_team(team_config.team_file).get("invoice_chaser")
     assert new.reports_to == "chief" and new.skills == ["list_tasks"] and new.freedom == "standard"
-    assert "Added Invoice chaser" in results(p)[0][0].content
+    out = results(p)[0][0].content
+    assert out.startswith("Added Invoice chaser") and "they pay Friday" in out
+    assert p.log[1] == ("user", "Chase Acme.")  # its first task, handed to it
+    hand = next(d for k, d in events if k == "delegate")
+    assert hand["to"] == "invoice_chaser" and hand["path"] == ["Gabe"]
+
+
+def test_new_bot_can_be_given_more_work_in_the_same_run(team_config):
+    p = ScriptedProvider([
+        hire(),
+        done("first done"),
+        tool_step(("delegate", {"specialist": "invoice_chaser", "task": "Chase Beta"})),
+        done("Chased."),
+        done("ok"),
+    ])
+    build_gabe(team_config, provider=p, approver=lambda t, a: True).send("x")
     assert not results(p)[1][0].is_error and results(p)[1][0].content == "Chased."
 
 
 def test_gabe_adds_a_bot_under_another_bot(team_config):
-    p = ScriptedProvider([hire(reports_to="ops"), done("ok")])
-    build_gabe(team_config, provider=p, approver=lambda t, a: True).send("x")
+    events = []
+    p = ScriptedProvider([hire(reports_to="ops"), done("first done"), done("ok")])
+    build_gabe(team_config, provider=p, approver=lambda t, a: True,
+               on_event=lambda k, d: events.append((k, d))).send("x")
     assert load_team(team_config.team_file).get("invoice_chaser").reports_to == "ops"
+    hand = next(d for k, d in events if k == "delegate")
+    assert hand["path"] == ["Gabe", "Operations lead"]  # handed down from its manager
+
+
+def test_overlapping_bot_must_go_under_the_member_who_owns_that_area(team_config):
+    p = ScriptedProvider([
+        hire(name="Scheduler helper", job="Owns tasks and deadlines."),                  # beside the scheduler
+        hire(name="Scheduler helper", job="Owns tasks and deadlines.", reports_to="scheduler"),
+        done("first done"),
+        done("ok"),
+    ])
+    build_gabe(team_config, provider=p, approver=lambda t, a: True).send("x")
+    first, second = results(p)[0][0], results(p)[1][0]
+    assert first.is_error and "overlaps Scheduler" in first.content and "reports_to: scheduler" in first.content
+    assert not second.is_error
+    assert load_team(team_config.team_file).get("scheduler_helper").reports_to == "scheduler"
+
+
+def test_new_bot_needs_a_first_task(team_config):
+    p = ScriptedProvider([hire(first_task=" "), done("ok")])
+    build_gabe(team_config, provider=p, approver=lambda t, a: True).send("x")
+    assert results(p)[0][0].is_error and "first_task" in results(p)[0][0].content
+    assert load_team(team_config.team_file).get("invoice_chaser") is None
 
 
 def test_declined_bot_is_not_added(team_config):
@@ -269,9 +310,10 @@ def test_a_bot_can_only_add_bots_in_its_branch_with_what_it_has(team_config):
     save_team(team_config.team_file, team)
     p = ScriptedProvider([
         hire(reports_to="careful"),                      # not in its branch
-        hire(skills=["send_email"]),                     # an action it doesn't have
-        hire(freedom="trusted"),                         # more freedom than allowed
+        hire(reports_to="ops", skills=["send_email"]),   # an action it doesn't have
+        hire(reports_to="ops", freedom="trusted"),       # more freedom than allowed
         hire(name="Late tasks", reports_to="scheduler"), # fine: under its own report
+        done("first done"),
         done("ok"),
     ])
     build_gabe(team_config, provider=p, approver=lambda t, a: True, member="ops").send("grow")
@@ -288,14 +330,14 @@ def test_look_only_bots_cannot_add_bots(team_config):
     team = team_config.team()
     team.get("watcher").skills = ["list_tasks", "add_team_member"]
     save_team(team_config.team_file, team)
-    p = ScriptedProvider([hire(), done("ok")])
+    p = ScriptedProvider([hire(reports_to="watcher"), done("ok")])
     build_gabe(team_config, provider=p, approver=lambda t, a: True, member="watcher").send("x")
     assert results(p)[0][0].is_error and "policy" in results(p)[0][0].content
     assert load_team(team_config.team_file).get("invoice_chaser") is None
 
 
 def test_hiring_moves_an_old_delegates_config_to_a_team_file(config_file):
-    p = ScriptedProvider([hire(), done("ok")])
+    p = ScriptedProvider([hire(), done("first done"), done("ok")])
     build_gabe(load_config(config_file), provider=p, approver=lambda t, a: True).send("x")
     cfg = load_config(config_file)
     assert cfg.team_file is not None and not cfg.delegates
@@ -306,6 +348,6 @@ def test_adding_a_bot_works_when_others_list_unconnected_actions(team_config):
     team = team_config.team()
     team.get("wild").skills = ["forget", "search_email"]  # outbox mode has no search_email
     save_team(team_config.team_file, team)
-    p = ScriptedProvider([hire(), done("ok")])
+    p = ScriptedProvider([hire(), done("first done"), done("ok")])
     build_gabe(team_config, provider=p, approver=lambda t, a: True).send("x")
     assert load_team(team_config.team_file).get("invoice_chaser") is not None

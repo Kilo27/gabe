@@ -723,3 +723,8 @@ li[data-unread="true"] .mail-from::before { background: var(--inbox); }
 .freedom-opt input { position: absolute; opacity: 0; pointer-events: none; }
 .freedom-opt[data-on="true"] { border-color: var(--hue-ink, var(--ask)); background: var(--hue-soft, var(--panel)); }
 .freedom-opt:has(input:focus-visible) { outline: 3px solid var(--ask); outline-offset: 2px; }
+
+/* A bot that has never done anything: dimmed, so it's easy to spot and remove. */
+.node[data-never][data-status="idle"] { border-style: dashed; }
+.node[data-never][data-status="idle"] .node-now { color: var(--activity-ink); }
+.agent-state[data-never] { background: color-mix(in oklab, var(--activity) 22%, var(--panel)); color: var(--activity-ink); }

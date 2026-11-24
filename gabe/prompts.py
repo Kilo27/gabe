@@ -89,9 +89,11 @@ def _company_block(cfg: Config) -> str:
 
 HIRE_NOTE = """\
 ## Growing the team
-If work keeps coming up that nobody on your team fits, add a team member for it with
-`add_team_member`, under yourself or under someone on your team. Give it a clear job and
-only the actions it needs. A person approves every new team member before it exists."""
+Prefer the team you have: hand work to the closest member, even if the fit isn't perfect.
+Only when a lasting role is missing (work of that kind keeps coming), add a member with
+`add_team_member`, placed under whoever owns that area. Never add members for individual
+tasks or a project's to-do list. A new member starts on its first task straight away, and
+a person approves every new member before it exists."""
 
 
 def chief_of_staff_prompt(cfg: Config, reports: "list[Member] | None" = None, dispatcher: bool = False,

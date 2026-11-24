@@ -919,7 +919,9 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
         by_log["briefing"] = "briefing"  # the brief's email send
         timeline: dict[str, list] = {r["id"]: [] for r in rows}
         timeline["you"] = []
-        for row in reversed(read_audit()):
+        audit_rows = read_audit()
+        ever = {by_log.get(r.get("agent", "")) for r in audit_rows}
+        for row in reversed(audit_rows):
             try:
                 local = datetime.fromisoformat(row["ts"]).astimezone(tz)
             except (KeyError, ValueError):
@@ -943,6 +945,7 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
             r["handed_by"] = "you" if handed == "you" else by_log.get(handed) if handed else None
             r["session"] = lv.get("session")
             r["waiting"] = [a["id"] for a in waits]
+            r["never_used"] = r["kind"] == "member" and r["id"] not in ever and not working
             items = timeline[r["id"]]
             r["today"] = {"done": sum(1 for i in items if i["outcome"] == "ok"),
                           "problems": sum(1 for i in items if i["outcome"] != "ok"), "total": len(items)}

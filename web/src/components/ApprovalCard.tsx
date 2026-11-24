@@ -21,6 +21,7 @@ function NewMemberView({ args }: { args: Record<string, any> }) {
         <dt>Freedom</dt><dd>{FREEDOM[args.freedom ?? "standard"] ?? args.freedom}</dd>
       </dl>
       <div className="letter-body">{args.instructions}</div>
+      {args.first_task && <p style={{ marginTop: 12 }}><strong>First task:</strong> {args.first_task}</p>}
       <div className="row" style={{ gap: 6, marginTop: 12 }}>
         {(args.skills ?? []).map((s: string) => <Chip key={s} hue={tool(s).area}>{tool(s).label}</Chip>)}
       </div>
@@ -169,9 +170,9 @@ export function ApprovalCard({ a, compact }: { a: Approval; compact?: boolean })
         {statusChip}
       </header>
 
-      {a.reason && mode === "view" && (
+      {(a.args.why || a.reason) && mode === "view" && (
         <div className="approval-why">
-          <strong>Why:</strong> {a.reason}
+          <strong>Why:</strong> {a.args.why || a.reason}
         </div>
       )}
 

@@ -102,7 +102,7 @@ function AgentMap({ agents, onOpen }: { agents: Hued[]; onOpen: (a: Hued) => voi
         if (!depth.has(a.id)) return null;
         const p = pos(a.id);
         return (
-          <button key={a.id} className="node" data-area={a.hue} data-status={a.status} style={{ left: p.x, top: p.y, width: nodeW }} onClick={() => onOpen(a)} aria-label={`${agentLabel(a)}: ${nowText(a)}`}>
+          <button key={a.id} className="node" data-area={a.hue} data-status={a.status} data-never={a.never_used || undefined} style={{ left: p.x, top: p.y, width: nodeW }} onClick={() => onOpen(a)} aria-label={`${agentLabel(a)}: ${nowText(a)}`}>
             <span className="node-tile">{a.kind === "briefing" ? <FileText size={17} /> : a.kind === "chief" ? <Sparkles size={17} /> : <Bot size={17} />}</span>
             <span className="node-text">
               <strong>{agentLabel(a)}</strong>
@@ -204,7 +204,7 @@ function Card({ a, boss, onOpen }: { a: Hued; boss?: Hued; onOpen: () => void })
           <p className="faint">{a.role}</p>
           {a.kind === "member" && boss && <p className="agent-boss"><span className="dot" data-area={boss.hue} /> Reports to {agentLabel(boss)}</p>}
         </div>
-        <span className="agent-state">{a.status === "working" ? "Working" : a.status === "waiting" ? "Waiting" : a.status === "paused" ? "Paused" : "Idle"}</span>
+        <span className="agent-state" data-never={a.never_used || undefined}>{a.status === "working" ? "Working" : a.status === "waiting" ? "Waiting" : a.status === "paused" ? "Paused" : a.never_used ? "Never used" : "Idle"}</span>
       </header>
 
       {a.status === "working" && (
