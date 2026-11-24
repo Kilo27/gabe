@@ -59,6 +59,7 @@ integrations:
   # - name: mcp
   #   settings:
   #     call_timeout: 60          # seconds per tool call
+  #     connect_timeout: 30       # seconds to start; a first `npx -y` download can need more
   #     servers:
   #       notion:
   #         command: npx          # stdio

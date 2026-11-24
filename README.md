@@ -129,6 +129,7 @@ Plug in existing MCP servers (Notion, Linear, Slack, Google Calendar...) with
   - name: mcp
     settings:
       call_timeout: 60                      # seconds per tool call
+      connect_timeout: 30                   # seconds to start; raise it for a first `npx -y` download
       servers:
         notion:                             # stdio: Gabe starts the process
           command: npx

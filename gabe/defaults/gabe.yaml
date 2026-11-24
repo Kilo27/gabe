@@ -30,6 +30,7 @@ integrations:
   # - name: mcp
   #   settings:
   #     call_timeout: 60
+  #     connect_timeout: 30   # raise for a first `npx -y` download
   #     servers:
   #       notion:
   #         command: npx
