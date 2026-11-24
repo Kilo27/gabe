@@ -37,6 +37,7 @@ class Config:
     policy: dict[str, Any] = field(default_factory=dict)
     delegates: list[DelegateSpec] = field(default_factory=list)
     briefing: dict[str, Any] = field(default_factory=dict)
+    pricing: dict[str, dict[str, float]] = field(default_factory=dict)  # model -> $/M tokens
 
     def playbooks(self) -> list[tuple[str, str]]:
         if not self.playbooks_dir or not self.playbooks_dir.is_dir():
@@ -83,4 +84,5 @@ def load_config(path: str | os.PathLike[str] | None = None) -> Config:
         policy=raw.get("policy") or {},
         delegates=delegates,
         briefing=raw.get("briefing") or {},
+        pricing=raw.get("pricing") or {},
     )

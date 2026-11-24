@@ -9,6 +9,7 @@ from gabe.audit import AuditLog
 from gabe.policy import Approver, Decision, Policy, deny_all
 from gabe.providers.base import Conversation, Provider, StepResult, ToolCall, ToolResult
 from gabe.tools.registry import ToolRegistry, validate_input
+from gabe.usage import UsageLog
 
 EventHandler = Callable[[str, dict[str, Any]], None]
 
@@ -27,6 +28,9 @@ class Agent:
     approver: Approver = deny_all
     audit: AuditLog = field(default_factory=lambda: AuditLog(None))
     on_event: EventHandler = _ignore
+    usage: UsageLog = field(default_factory=lambda: UsageLog(None))
+    user: str = "unknown"  # who the work is for, for usage reporting
+    task: str = "chat"  # what kind of work (chat, brief, ...), for usage reporting
     max_steps: int = 40
     _conv: Conversation | None = field(default=None, init=False, repr=False)
 
@@ -45,6 +49,7 @@ class Agent:
         conv.add_user(text)
         for _ in range(self.max_steps):
             result = conv.step()
+            self.usage.record(user=self.user, task=self.task, agent=self.name, usage=result.usage)
             self.on_event("step", {"agent": self.name, "stop": result.stop, "usage": result.usage})
             if result.text and result.tool_calls:
                 self.on_event("thought", {"agent": self.name, "text": result.text})

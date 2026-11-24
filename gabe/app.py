@@ -10,6 +10,7 @@ from gabe.policy import Approver, Policy, deny_all
 from gabe.prompts import chief_of_staff_prompt, delegate_prompt
 from gabe.providers import Provider, make_provider
 from gabe.tools.registry import Risk, Tool, ToolRegistry, schema
+from gabe.usage import UsageLog, resolve_user
 
 
 def build_gabe(
@@ -17,10 +18,15 @@ def build_gabe(
     approver: Approver = deny_all,
     on_event: EventHandler = _ignore,
     provider: Provider | None = None,
+    user: str | None = None,
+    task: str = "chat",
 ) -> Agent:
     provider = provider or make_provider(cfg.provider)
     policy = Policy.from_config(cfg.policy)
     audit = AuditLog(cfg.data_dir / "audit.jsonl")
+    usage = UsageLog(cfg.data_dir / "usage.jsonl")
+    user = resolve_user(user)
+    job = task  # the delegate tool's own `task` argument is the specialist's instructions
 
     registry = ToolRegistry()
     load_integrations(cfg, registry)
@@ -39,6 +45,9 @@ def build_gabe(
                 approver=approver,
                 audit=audit,
                 on_event=on_event,
+                usage=usage,
+                user=user,
+                task=job,
             )
             return sub.send(task)
 
@@ -71,4 +80,7 @@ def build_gabe(
         approver=approver,
         audit=audit,
         on_event=on_event,
+        usage=usage,
+        user=user,
+        task=task,
     )
