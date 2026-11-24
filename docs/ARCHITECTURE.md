@@ -64,6 +64,26 @@ Paused members drop out with their whole branch.
 covers (`team_coverage`) stay with Gabe, so pausing a branch never strands an action. The
 briefing agent is built separately with the hands-on prompt and read-only tools.
 
+**MCP servers.** The `mcp` integration turns each configured MCP server's tools into
+Gabe tools named `<server>__<tool>`, with `integration` set to the server name so policy
+works per server. Risk defaults to `external` (server annotations are untrusted hints).
+The loop is synchronous and the registry is rebuilt per run, so one background asyncio
+loop in a daemon thread holds every session open for the life of the process; `setup`
+reuses live sessions keyed by a hash of each server's connection config, reconnects dead
+ones, closes removed ones, and skips (logs) servers that fail. Status per server shows
+in Settings → Connections.
+
+**Changing an installation.** An installation is its config folder; Gabe's code never
+changes. Companies extend it with local integration files (`integrations/<name>.py`,
+re-imported when they change; failures are skipped and reported) and edit it with Claude
+Code, either in a Terminal opened from Settings or through the `change_gabe` action
+(`gabe/integrations/claude_code.py`), which runs `claude -p --restricted` in the folder
+under an `ask_first` approval, with a backup, `gabe check` (`gabe/check.py`) afterwards,
+one fix-up round, and automatic undo. It runs on Gabe's own provider (same key and
+model; for an OpenAI-compatible GLM server, the same server's Anthropic-format API), so
+self-editing moves to the local model along with everything else. Claude Code is optional: nothing else depends on it,
+so a local-model deployment loses only this action.
+
 **Desktop app.** The team is edited and watched from the app's Agents screen
 (`gabe/web/server.py`, `/api/agents`); see the README's Desktop app section. Approvals block
 the run's thread until someone decides in the app (approve, edit then approve, or decline
@@ -77,8 +97,10 @@ Done: Gmail access (search, read, draft, send), daily briefing (`gabe brief`, `g
 2. **Slack integration**: talk to Gabe in DMs and channels, approve actions with Slack
    buttons, post the daily brief to a channel. Built on the same API and approval queue
    as the web UI.
-3. More connectors: Google Calendar and Docs, HRIS, ticketing. MCP client support so
-   existing MCP servers plug in as integrations.
+3. More connectors. Done: MCP client (`gabe/integrations/mcp.py`), so any MCP server
+   (Calendar, Drive, Slack, Notion, Linear...) plugs in as integrations under the same
+   policy. Next: OAuth for remote MCP servers (bearer headers only today), then native
+   connectors where MCP falls short (HRIS, ticketing).
 4. Durable storage (Postgres) behind the memory, tasks and audit integrations.
 5. Local inference: serve GLM 5.3 with vLLM/SGLang, run the test suite and an eval set
    against both providers, then cut over.

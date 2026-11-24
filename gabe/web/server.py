@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 
 from gabe.app import team_skills
 from gabe.briefing import DAYS, BriefingSettings, build_briefer, company_tz, email_briefing, next_run, run_briefing
+from gabe.claude_code import find_claude, open_in_terminal
 from gabe.integrations import IntegrationContext, load_integrations
 from gabe.integrations._store import JsonStore
 from gabe.policy import Policy
@@ -653,11 +654,23 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
         company = dict(cfg.company)
         b = BriefingSettings.from_config(cfg)
         playbooks = [{"name": n, "text": t} for n, t in cfg.playbooks()]
+        rules = policy_rows(cfg)  # builds the registry first, so MCP server status is current
         integrations = []
         for spec in cfg.integrations:
             entry = {"name": spec.name, "settings": {k: v for k, v in spec.settings.items() if "key" not in k.lower()}}
             if spec.name == "email":
                 entry["status"] = gmail_status()
+            if spec.name == "mcp":
+                # Server configs carry tokens (env, headers, args): only names and state go out.
+                from gabe.integrations import mcp as mcp_integration
+
+                live = mcp_integration.status()
+                entry["settings"] = {}
+                entry["servers"] = [
+                    {"name": name, **live.get(name, {"state": "error", "error": "not connected", "tools": 0,
+                                                     "transport": "http" if (s or {}).get("url") else "stdio"})}
+                    for name, s in sorted((spec.settings.get("servers") or {}).items())
+                ]
             integrations.append(entry)
         provider = {k: v for k, v in (cfg.provider or {}).items() if "key" not in k.lower()}
         provider["key_set"] = bool(os.environ.get("ANTHROPIC_API_KEY"))
@@ -672,7 +685,7 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
             "briefing": {"time": b.time, "days": b.days, "email_to": b.email_to},
             "policy": {
                 "defaults": {r.value: d.value for r, d in Policy.from_config(cfg.policy).defaults.items()},
-                "tools": policy_rows(cfg),
+                "tools": rules,
                 "integrations": (raw.get("policy") or {}).get("integrations") or {},
             },
             "all_tools": team_skills(cfg),
@@ -682,6 +695,8 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
             "usage": [{"date": k, **v} for k, v in sorted(usage_days.items(), reverse=True)[:30]],
             "config_path": str(state.config_path),
             "desktop": desktop,
+            "claude_code": {"installed": find_claude() is not None,
+                            "folder": str(cfg.root).replace(str(Path.home()), "~", 1)},
         }
 
     @app.put("/api/settings/company")
@@ -746,6 +761,20 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
         state.edit_config(fn)
         person_audit("edit_settings", {"section": "policy"})
         return settings()
+
+    @app.post("/api/claude-code/open")
+    def open_claude_code():
+        """A Terminal running Claude Code in the config folder, to change this installation."""
+        claude = find_claude()
+        if not claude:
+            bad("Claude Code isn't installed.")
+        cfg = state.config()
+        try:
+            open_in_terminal(cfg.path, claude, cfg.data_dir)
+        except Exception as e:
+            bad(f"Couldn't open Claude Code: {e}")
+        person_audit("open_claude_code", {"folder": str(cfg.root)})
+        return {"ok": True}
 
     @app.put("/api/settings/api-key")
     def save_api_key(payload: dict = Body(...)):

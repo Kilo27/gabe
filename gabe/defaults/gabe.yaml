@@ -26,6 +26,20 @@ integrations:
     settings:
       backend: gmail
       credentials_file: gmail_client_secret.json
+  - claude_code            # Gabe can change its own setup via Claude Code, with your OK (if installed)
+  # MCP servers (tools become <server>__<tool>; external unless set otherwise):
+  # - name: mcp
+  #   settings:
+  #     call_timeout: 60
+  #     connect_timeout: 30   # raise for a first `npx -y` download
+  #     servers:
+  #       notion:
+  #         command: npx
+  #         args: ["-y", "@notionhq/notion-mcp-server"]
+  #         env: {PATH: "/opt/homebrew/bin:/usr/bin:/bin", NOTION_TOKEN: "${NOTION_TOKEN}"}   # the app's PATH is minimal
+  #       linear:
+  #         url: https://mcp.linear.app/mcp
+  #         headers: {Authorization: "Bearer ${LINEAR_TOKEN}"}
 
 policy:
   defaults:

@@ -233,6 +233,7 @@ def main(argv: list[str] | None = None) -> int:
     usage.add_argument("--by", default="user,task,model", help="Group by any of user,task,model,agent (default: user,task,model)")
     auth = sub.add_parser("auth", help="Authorise an integration")
     auth.add_argument("service", choices=["gmail"])
+    sub.add_parser("check", help="Check the config folder (after editing it by hand or with Claude Code)")
     sub.add_parser("app", help="Open the Gabe desktop app from source")
     web = sub.add_parser("web", help="Serve the app UI to a browser (for development)")
     web.add_argument("--host", default="127.0.0.1", help="Address to listen on (default: this computer only)")
@@ -244,6 +245,12 @@ def main(argv: list[str] | None = None) -> int:
         from gabe.desktop import main as desktop_main
 
         return desktop_main()
+    if args.command == "check":  # before load_config, which may be what's broken
+        from gabe.check import check_config
+
+        report = check_config(args.config or os.environ.get("GABE_CONFIG", "config/gabe.yaml"))
+        print(report.text())
+        return 0 if report.ok else 1
     cfg = load_config(args.config)
     args.config_path = args.config or os.environ.get("GABE_CONFIG", "config/gabe.yaml")
     handler = {"brief": _brief, "schedule": _schedule, "auth": _auth, "usage": _usage, "web": _web}.get(args.command, _chat)

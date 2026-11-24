@@ -124,6 +124,67 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design.
 - `tasks`: create, list and update tasks with owners and due dates
 - `email`: Gmail / Google Workspace, one or more mailboxes (`settings.accounts`; add them in the web app) (`search_email`, `read_email`, `draft_email`,
   `send_email`, `mark_email_read`), or an `outbox` backend that saves outgoing mail to disk without delivering it. See [docs/GMAIL_SETUP.md](docs/GMAIL_SETUP.md).
+- `mcp`: any [MCP](https://modelcontextprotocol.io) server's tools (see below).
+
+## MCP servers
+
+Plug in existing MCP servers (Notion, Linear, Slack, Google Calendar...) with
+`pip install -e '.[mcp]'` and an `mcp` entry under `integrations:`:
+
+```yaml
+  - name: mcp
+    settings:
+      call_timeout: 60                      # seconds per tool call
+      connect_timeout: 30                   # seconds to start; raise it for a first `npx -y` download
+      servers:
+        notion:                             # stdio: Gabe starts the process
+          command: npx
+          args: ["-y", "@notionhq/notion-mcp-server"]
+          env: {NOTION_TOKEN: "${NOTION_TOKEN}"}       # ${VAR} from the environment
+          tools: {API-post-search: read}    # per-tool risk
+        linear:                             # streamable HTTP
+          url: https://mcp.linear.app/mcp
+          headers: {Authorization: "Bearer ${LINEAR_TOKEN}"}
+          include: [list_issues, create_issue]         # or exclude: [...]
+```
+
+- Tools are named `<server>__<tool>` and can be given to team members like any action.
+- Risk is `external` (asks first by default) unless you set `risk:` for the server or
+  `tools:` per tool. A server's own read-only hints are ignored unless
+  `trust_annotations: true`; nothing else ever lowers risk.
+- Policy works by server name: `policy: {integrations: {notion: allow, linear: ask}}`.
+- Servers start once and stay connected; one that fails is skipped (its tools are simply
+  missing) and retried a minute later. Status is in Settings → Connections; stdio servers'
+  stderr goes to `data/mcp/logs/<server>.log`.
+- Gabe.app launches stdio servers with a minimal PATH: use an absolute `command`, or set
+  `PATH` in `env` (e.g. `/opt/homebrew/bin:/usr/bin:/bin` for `npx`).
+- Remote servers take bearer headers only; OAuth sign-in isn't supported yet.
+
+## Changing your Gabe with Claude Code
+
+Everything that makes an installation yours lives in its config folder
+(`~/Library/Application Support/Gabe/config/` for the app): settings, team, playbooks,
+and your own integrations as Python files in `integrations/` (listed by name under
+`integrations:`; a broken one is skipped, never fatal). Gabe rereads the folder on every
+request, so edits apply at once. Gabe writes a `CLAUDE.md` there explaining the format to
+Claude Code (your own notes go in `CLAUDE.local.md`).
+
+- **Settings → Customize → Open in Claude Code** opens Terminal running `claude` in that
+  folder. Ask for what you want ("connect our Linear", "add a bot that chases invoices").
+- **Ask Gabe**: with the `claude_code` integration, Gabe has a `change_gabe` action that
+  hands the request to Claude Code. Every request needs a person's OK. Claude Code runs
+  restricted (no shell, only that folder); the folder is backed up to
+  `data/claude_code/backups/` first and checked after; a change that fails the check gets
+  one fix-up, then is undone. Not offered when Claude Code isn't installed.
+- Claude Code runs on Gabe's own model setup: with `provider: anthropic`, Gabe's API key
+  and model; with `provider: openai_compatible` (GLM on vLLM, LiteLLM...), the same server,
+  key and model through its Anthropic-format API (`…/v1` → `…/v1/messages`), for every
+  tier, with Anthropic telemetry off. Where that API lives elsewhere (Z.ai:
+  `https://api.z.ai/api/anthropic`), set `base_url` and `auth_token: "${VAR}"` under
+  `claude_code`. `model:` there overrides the model; `use_claude_login: true` uses your
+  own Claude sign-in instead. With no Gabe API key set, it falls back to that sign-in.
+- `gabe check` (in the app: `Gabe.app/Contents/MacOS/Gabe check`) checks the folder after
+  any edit.
 
 ## Daily briefing
 

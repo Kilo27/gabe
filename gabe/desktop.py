@@ -60,7 +60,22 @@ def ensure_config(home: Path) -> Path:
             shutil.copytree(books, cfg_dir / "playbooks", dirs_exist_ok=True)
     else:
         _upgrade_starter_team(cfg)
+    try:
+        from gabe.claude_code import ensure_guide
+
+        ensure_guide(cfg)  # how to change this installation, for Claude Code
+    except Exception as e:
+        log.warning("couldn't write the Claude Code guide: %s", e)
     return cfg
+
+
+def check_main() -> int:
+    """`Gabe check` from the packaged app: check the app's config folder."""
+    from gabe.check import check_config
+
+    report = check_config(ensure_config(app_home()))
+    print(report.text())
+    return 0 if report.ok else 1
 
 
 def _upgrade_starter_team(cfg: Path) -> None:
@@ -155,6 +170,8 @@ def describe_request(rec: dict) -> tuple[str, str]:
         body = f"Send an email to {to}: {args.get('subject', '')}"
     elif tool == "add_team_member":
         body = f"Add {args.get('name', 'a new bot')} to the team"
+    elif tool == "change_gabe":
+        body = f"Change Gabe's setup: {args.get('request', '')}"
     else:
         body = tool.replace("_", " ").capitalize()
     return f"{who} needs your OK", body

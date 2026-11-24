@@ -16,3 +16,5 @@ gabe/web/static/
 packaging/build/
 packaging/google_oauth_client.json
 web/*.tsbuildinfo
+config/CLAUDE.md
+config/CLAUDE.local.md
