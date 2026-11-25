@@ -34,10 +34,12 @@ window; that service only accepts calls from its own window (a fresh token each 
 
 ```bash
 pip install -e '.[desktop,gmail,build]'
-packaging/macos/build.sh        # → dist/macos/Gabe.app and Gabe.dmg (needs Node, ImageMagick)
+packaging/macos/build.sh        # → dist/macos/Gabe.app and Gabe.dmg, installed to /Applications (needs Node, ImageMagick)
 gabe app                        # run it from source instead
 ```
 
+- The build quits a running Gabe and replaces `/Applications/Gabe.app`, so it survives the
+  checkout being deleted. `INSTALL=0` skips that; `INSTALL_DIR=~/Applications` installs there.
 - Settings and data live in `~/Library/Application Support/Gabe/` (`config/`, `data/`); the
   first launch copies a starter config there. `GABE_HOME` overrides the location.
 - The Anthropic API key is entered in Settings → AI model and kept in the macOS Keychain.
