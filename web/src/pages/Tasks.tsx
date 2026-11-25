@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, CheckSquare, Columns3, List, Plus, Search, Send } from "lucide-react";
+import { Bot, CheckSquare, Columns3, List, Pause, Play, Plus, Repeat, Search, Send, Trash2, Zap } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { api, type AgentsData, type Task, type TaskStatus } from "../api";
+import { api, type AgentsData, type Schedule, type Task, type TaskStatus } from "../api";
 import { Chip, Empty, Field, PageHeader, Segmented, Sheet, SkeletonList, useToast } from "../components/ui";
 import { dayLabel, when } from "../lib/format";
 import { STATUS } from "../lib/tools";
@@ -134,6 +134,52 @@ function TaskSheet({ task, owners, projects, onClose }: { task: Partial<Task> | 
   );
 }
 
+function nextRun(ts: string) {
+  const d = new Date(ts);
+  const t = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return new Date().toDateString() === d.toDateString() ? t : `${d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}, ${t}`;
+}
+
+function Recurring() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const { data } = useQuery({ queryKey: ["schedules"], queryFn: () => api.get<Schedule[]>("/api/schedules"), refetchInterval: 15000 });
+  const done = () => qc.invalidateQueries({ queryKey: ["schedules"] });
+  const fail = (e: Error) => toast(e.message, "danger");
+  const pause = useMutation({ mutationFn: (s: Schedule) => api.patch(`/api/schedules/${s.id}`, { paused: !s.paused }), onSuccess: done, onError: fail });
+  const run = useMutation({ mutationFn: (s: Schedule) => api.post(`/api/schedules/${s.id}/run`), onSuccess: () => { done(); toast("Running", "tasks"); }, onError: fail });
+  const remove = useMutation({ mutationFn: (s: Schedule) => api.del(`/api/schedules/${s.id}`), onSuccess: done, onError: fail });
+  if (!data?.length) return null;
+  return (
+    <div className="panel table-wrap" data-area="tasks" style={{ marginBottom: 16 }}>
+      <table className="table">
+        <thead>
+          <tr><th><Repeat size={14} /> Recurring</th><th>When</th><th>Next</th><th /></tr>
+        </thead>
+        <tbody>
+          {data.map((s) => (
+            <tr key={s.id} data-done={s.paused}>
+              <td>
+                {s.session_id ? <Link className="link-btn" to={`/ask/${s.session_id}`}>{s.name}</Link> : s.name}
+                <div className="faint">{s.instruction}</div>
+              </td>
+              <td>{s.when}</td>
+              <td>{s.paused ? <Chip hue="neutral">Paused</Chip> : nextRun(s.next_run)}</td>
+              <td>
+                <div className="row" style={{ gap: 4, justifyContent: "flex-end", flexWrap: "nowrap" }}>
+                  <button className="btn btn-ghost" title="Run now" aria-label={`Run ${s.name} now`} onClick={() => run.mutate(s)} disabled={run.isPending}><Zap size={15} /></button>
+                  <button className="btn btn-ghost" title={s.paused ? "Resume" : "Pause"} aria-label={`${s.paused ? "Resume" : "Pause"} ${s.name}`} onClick={() => pause.mutate(s)}>{s.paused ? <Play size={15} /> : <Pause size={15} />}</button>
+                  <button className="btn btn-ghost" title="Delete" aria-label={`Delete ${s.name}`} onClick={() => confirm(`Delete “${s.name}”?`) && remove.mutate(s)}><Trash2 size={15} /></button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function Tasks() {
   const qc = useQueryClient();
   const toast = useToast();
@@ -216,6 +262,7 @@ export default function Tasks() {
         )}
       </div>
 
+      <Recurring />
       {isLoading ? (
         <div className="panel"><SkeletonList rows={5} /></div>
       ) : all.length === 0 ? (

@@ -137,9 +137,11 @@ def build_gabe(
     task: str = "chat",
     member: str | None = None,
     asker: Asker = no_one_to_ask,
+    scheduling: bool = False,
 ) -> Agent:
     """Gabe, the chief of staff. With `member`, that team member on its own (a job given to
-    it directly), still able to hand work to its own reports."""
+    it directly), still able to hand work to its own reports. With `scheduling`, Gabe can set
+    up recurring jobs (gabe/schedules.py); only the app runs them, so only the app turns it on."""
     provider = provider or make_provider(cfg.provider)
     policy = Policy.from_config(cfg.policy)
     audit = AuditLog(cfg.data_dir / "audit.jsonl")
@@ -384,6 +386,11 @@ def build_gabe(
     registry = tools.subset(chief_tools(cfg, team, available))
     registry.register(ask_tool(cfg.assistant_name, asker))
     registry.register(hire_tool(None, top))  # Gabe can always grow the team, with a person's OK
+    if scheduling:
+        from gabe.schedules import schedule_tools
+
+        for t in schedule_tools(cfg, created_by=cfg.assistant_name):
+            registry.register(t)
     return Agent(
         name=cfg.assistant_name,
         provider=provider,
