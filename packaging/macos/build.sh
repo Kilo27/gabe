@@ -1,5 +1,6 @@
 #!/bin/sh
-# Build Gabe.app and a .dmg for macOS.
+# Build Gabe.app and a .dmg for macOS, then install the app into /Applications.
+#   INSTALL=0 packaging/macos/build.sh  # build only
 #   packaging/macos/build.sh            # signed with "Gabe Local Signing" if present (see make_signing_cert.sh), else ad-hoc
 #   SIGN_ID="Developer ID Application: …" packaging/macos/build.sh   # signed for distribution
 # Needs: Python venv with `pip install -e '.[desktop,gmail,build]'`, Node + npm, ImageMagick.
@@ -50,3 +51,21 @@ rm -rf "$STAGE"
 
 echo "Done: $APP"
 echo "      $OUT/Gabe.dmg"
+
+# Install into /Applications, so the app outlives this checkout (dist/ is deleted with a worktree).
+# INSTALL=0 skips this; INSTALL_DIR picks another folder (e.g. ~/Applications).
+if [ "${INSTALL:-1}" != "0" ]; then
+  DEST="${INSTALL_DIR:-/Applications}/Gabe.app"
+  if pgrep -xq Gabe; then
+    echo "→ quitting Gabe"
+    osascript -e 'quit app "Gabe"' >/dev/null 2>&1 || true
+    for _ in 1 2 3 4 5 6 7 8 9 10; do pgrep -xq Gabe || break; sleep 1; done
+    pkill -x Gabe 2>/dev/null || true
+  fi
+  echo "→ installing to $DEST"
+  mkdir -p "$(dirname "$DEST")"
+  rm -rf "$DEST"
+  ditto "$APP" "$DEST"
+  codesign --verify --deep --strict "$DEST"
+  echo "Installed: $DEST"
+fi
