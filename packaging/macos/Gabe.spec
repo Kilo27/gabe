@@ -9,7 +9,8 @@ hidden = (
     collect_submodules("gabe")            # integrations are imported by name at runtime
     + collect_submodules("uvicorn")
     + collect_submodules("keyring.backends")
-    + collect_submodules("mcp")             # MCP client, imported lazily by the mcp integration
+    # MCP client, imported lazily by the mcp integration. mcp.cli needs typer (an extra Gabe doesn't use).
+    + collect_submodules("mcp", filter=lambda name: not name.startswith("mcp.cli"))
     + ["googleapiclient.discovery", "google_auth_oauthlib.flow",
        "UserNotifications", "AppKit", "Foundation", "PyObjCTools.AppHelper"]  # notifications, Dock badge
 )
