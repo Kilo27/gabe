@@ -27,7 +27,7 @@ gabe --unattended -m "..."          # refuses anything that needs approval
 pytest                              # tests use a scripted provider, no API calls
 ```
 
-## Desktop app (macOS; Windows next)
+## Desktop app (macOS and Windows)
 
 Gabe ships as a desktop app, not a website. It runs its own local service inside a native
 window; that service only accepts calls from its own window (a fresh token each launch).
@@ -37,6 +37,13 @@ pip install -e '.[desktop,gmail,build]'
 packaging/macos/build.sh        # → dist/macos/Gabe.app and Gabe.dmg, installed to /Applications (needs Node, ImageMagick)
 gabe app                        # run it from source instead
 ```
+
+Windows: `packaging\windows\build.ps1` on a Windows PC (needs Python, Node, Inno Setup 6) gives
+`dist\windows\GabeSetup.exe` (installs per user, no admin) and the app folder
+`dist\windows\Gabe\Gabe.exe`. It can't be built on a Mac: the **Windows app** GitHub Actions
+workflow builds it on every PR and push to `main`, and attaches `GabeSetup.exe` to a release for
+`v*` tags. Add a `GOOGLE_OAUTH_CLIENT_JSON` repo secret to include Sign in with Google. Settings
+live in `%APPDATA%\Gabe\`, the API key in Windows Credential Manager.
 
 - The build quits a running Gabe and replaces `/Applications/Gabe.app`, so it survives the
   checkout being deleted. `INSTALL=0` skips that; `INSTALL_DIR=~/Applications` installs there.
