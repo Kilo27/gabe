@@ -85,6 +85,10 @@ export type Task = {
   status: TaskStatus; created: string; source?: string;
   handled_by?: { agent: string; agent_id: string; session_id: string; at: string };
 };
+export type Schedule = {
+  id: string; name: string; instruction: string; when: string; every_minutes: number | null; at: string | null;
+  days: string[]; between: string | null; paused: boolean; next_run: string; last_run: string | null; runs: number; session_id: string | null;
+};
 export type TaskStatus = "open" | "in_progress" | "blocked" | "done" | "cancelled";
 
 export type Note = { id: string; topic: string; note: string; tags: string[]; created: string; edited?: string };

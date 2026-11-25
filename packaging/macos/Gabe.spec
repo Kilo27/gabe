@@ -9,7 +9,7 @@ hidden = (
     collect_submodules("gabe")            # integrations are imported by name at runtime
     + collect_submodules("uvicorn")
     + collect_submodules("keyring.backends")
-    + collect_submodules("mcp")             # MCP client, imported lazily by the mcp integration
+    + collect_submodules("mcp", filter=lambda n: not n.startswith("mcp.cli"))  # MCP client (lazy); its CLI needs typer
     + ["googleapiclient.discovery", "google_auth_oauthlib.flow",
        "UserNotifications", "AppKit", "Foundation", "PyObjCTools.AppHelper"]  # notifications, Dock badge
 )
@@ -28,7 +28,7 @@ a = Analysis(
     pathex=[ROOT],
     datas=datas,
     hiddenimports=hidden,
-    excludes=["tkinter", "pytest", "PyInstaller"],
+    excludes=["tkinter", "pytest", "PyInstaller", "mcp.cli"],
     noarchive=False,
 )
 pyz = PYZ(a.pure)

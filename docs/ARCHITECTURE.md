@@ -84,6 +84,17 @@ model; for an OpenAI-compatible GLM server, the same server's Anthropic-format A
 self-editing moves to the local model along with everything else. Claude Code is optional: nothing else depends on it,
 so a local-model deployment loses only this action.
 
+**Recurring jobs.** `gabe/schedules.py`. Gabe (the chief, in the app only: `build_gabe(...,
+scheduling=True)`) gets `schedule_job`, `list_schedules`, `update_schedule` and `cancel_schedule`
+as its own tools, outside `own_tools`/team coverage, so a dispatcher Gabe never delegates them.
+Timetables are `every_minutes` (with optional `days` and `between` hours) or a daily `at`, in
+the company timezone, stored in `data/schedules.json`. The server checks every 20 s;
+`claim_due` moves each due job to its next slot before running it, so a missed or failing run
+never loops. Each job has one conversation (`schedule_id` on the session); every run forgets the
+previous one's memory, only the last 50 runs are kept, and a run still going (e.g. waiting on an
+approval) makes the next one skip. A run that replies `NOTHING TO REPORT` sends no notice; a job
+that keeps failing is announced (and handed to Gabe to fix) once, not every run.
+
 **Desktop app.** The team is edited and watched from the app's Agents screen
 (`gabe/web/server.py`, `/api/agents`); see the README's Desktop app section. Approvals block
 the run's thread until someone decides in the app (approve, edit then approve, or decline

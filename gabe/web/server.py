@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
+import time
 import threading
 import json
 import os
@@ -19,6 +21,7 @@ from fastapi import Body, FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from gabe import schedules
 from gabe.app import team_skills
 from gabe.briefing import DAYS, BriefingSettings, build_briefer, company_tz, email_briefing, next_run, run_briefing
 from gabe.claude_code import find_claude, open_in_terminal
@@ -29,12 +32,13 @@ from gabe.tools.registry import Risk, Tool, ToolRegistry
 from gabe.web.state import WebState, check_args, friendly_error, new_id, now
 
 STATIC = Path(__file__).parent / "static"
+log = logging.getLogger(__name__)
 PERSON = "You (web app)"
 DECISIONS = ("allow", "ask", "deny")
 
 
 def create_app(config_path: str | Path, token: str | None = None, desktop: bool = False,
-               resume_when: "threading.Event | None" = None) -> FastAPI:
+               resume_when: "threading.Event | None" = None, run_schedules: bool = True) -> FastAPI:
     """`token`: when set, every /api call must carry it (X-Gabe-Token). The desktop app sets a
     fresh one per launch so other programs and web pages on this computer can't use the API."""
     state = WebState(Path(config_path))
@@ -49,6 +53,21 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
         state.resumed = state.sessions.resume_interrupted()
 
     threading.Thread(target=pick_up_interrupted, daemon=True, name="resume").start()
+
+    def recurring_jobs():
+        # Recurring jobs (gabe/schedules.py) run while the app is open. Like resumed work, they
+        # wait for the API key first.
+        if resume_when is not None:
+            resume_when.wait()
+        while True:
+            try:
+                state.run_due_schedules()
+            except Exception:  # keep the loop alive across a bad config or store
+                log.exception("recurring jobs check failed")
+            time.sleep(20)
+
+    if run_schedules:
+        threading.Thread(target=recurring_jobs, daemon=True, name="recurring-jobs").start()
 
     if token:
         import hmac
@@ -86,11 +105,12 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
     def find_tool(name: str):
         """A tool by name, including Gabe's own (delegate, add_team_member), to check edited input."""
         cfg = state.config()
-        if name in ("delegate", "add_team_member"):
+        if name in ("delegate", "add_team_member", "schedule_job", "update_schedule", "cancel_schedule"):
             from gabe.app import build_gabe
             from gabe.policy import deny_all
 
-            return build_gabe(cfg, approver=deny_all, provider=_NoProvider(), team=cfg.team()).registry.get(name)
+            return build_gabe(cfg, approver=deny_all, provider=_NoProvider(), team=cfg.team(),
+                              scheduling=True).registry.get(name)
         return registry().get(name)
 
     def brief_dir() -> Path:
@@ -381,6 +401,48 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
         if task is None:
             bad("That task doesn't exist any more.", 404)
         return task
+
+    # -- recurring jobs ----------------------------------------------------------
+
+    @app.get("/api/schedules")
+    def list_schedules():
+        return schedules.list_all(state.config())
+
+    @app.patch("/api/schedules/{sched_id}")
+    def edit_schedule(sched_id: str, payload: dict = Body(...)):
+        allowed = {k: payload[k] for k in ("paused", "name", "instruction", "every_minutes", "at", "days", "between")
+                   if k in payload}
+        try:
+            s = schedules.update(state.config(), sched_id, **allowed)
+        except KeyError:
+            bad("That recurring job doesn't exist any more.", 404)
+        except ValueError as e:
+            bad(str(e))
+        person_audit("update_schedule", {"id": sched_id, **allowed})
+        return s
+
+    @app.delete("/api/schedules/{sched_id}")
+    def delete_schedule(sched_id: str):
+        try:
+            s = schedules.remove(state.config(), sched_id)
+        except KeyError:
+            bad("That recurring job doesn't exist any more.", 404)
+        person_audit("cancel_schedule", {"id": sched_id, "name": s["name"]})
+        return {"ok": True}
+
+    @app.post("/api/schedules/{sched_id}/run")
+    def run_schedule_now(sched_id: str):
+        s = next((x for x in schedules.list_all(state.config()) if x["id"] == sched_id), None)
+        if s is None:
+            bad("That recurring job doesn't exist any more.", 404)
+        try:
+            state.check_not_paused(None)
+            if state.run_schedule(s) is None:
+                bad("It's still busy with its last run.", 409)
+        except RuntimeError as e:
+            bad(str(e), 409)
+        person_audit("run_schedule", {"id": sched_id, "name": s["name"]})
+        return next(x for x in schedules.list_all(state.config()) if x["id"] == sched_id)
 
     # -- tasks -----------------------------------------------------------------
 
