@@ -404,6 +404,9 @@ class Updater:
         app = app_bundle()
         if app is None:
             raise UpdateError("Couldn't find Gabe.app.")
+        if not os.access(app.parent, os.W_OK):
+            raise UpdateError(f"This account can't change {app.parent}. Install Gabe again with the "
+                              "Terminal command; it goes in your own Applications folder.")
         zpath = self._github().download(url, self.dir / MAC_ASSET)
         new = self.dir / "new"
         shutil.rmtree(new, ignore_errors=True)
