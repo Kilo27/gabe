@@ -14,6 +14,7 @@ if [ -z "$PYTHON" ] && [ ! -x "$PY" ]; then
   MAIN="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)"
   PY="$MAIN/.venv/bin/python"
 fi
+PY="$(command -v "$PY" || echo "$PY")"   # PYTHON may be a command name, e.g. python in CI
 if [ ! -x "$PY" ]; then
   echo "error: no Python venv at $PY (set PYTHON=/path/to/python)" >&2
   exit 1
