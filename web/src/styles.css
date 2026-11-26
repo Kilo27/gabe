@@ -774,3 +774,16 @@ li[data-unread="true"] .mail-from::before { background: var(--inbox); }
 .give-bot { display: flex; flex-direction: column; gap: 12px; padding: 14px; border-radius: 12px; background: var(--hue-soft); }
 .steps-resumed { color: var(--activity-ink); }
 .step-resumed { font-weight: 600; color: var(--activity-ink); }
+
+/* ---- FAQ bot -------------------------------------------------------------------- */
+
+.check { display: inline-flex; gap: 10px; align-items: center; cursor: pointer; }
+.check input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--hue); }
+.faq-q { all: unset; box-sizing: border-box; display: flex; gap: 12px; align-items: center; width: 100%; padding: 10px 12px 10px 14px; cursor: pointer; }
+.faq-q:focus-visible { outline: 2px solid var(--ask); outline-offset: -2px; border-radius: 12px; }
+.faq-q > .grow { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.faq-q-text { overflow-wrap: anywhere; }
+.faq-doc { display: flex; align-items: center; gap: 4px; padding-right: 8px; }
+.faq-doc .faq-q > svg { flex: none; color: var(--ink-3); }
+.channel-list { max-height: 320px; overflow-y: auto; }
+.channel-list .check svg { color: var(--ink-3); flex: none; }

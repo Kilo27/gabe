@@ -214,6 +214,41 @@ def _web(cfg, args) -> int:
     return 0
 
 
+def _slack(cfg, args) -> int:
+    """Run the Slack FAQ bot on its own (a server with no desktop app). Ctrl-C stops it."""
+    import logging
+    import time
+
+    from gabe.faq.settings import FaqSettings
+    from gabe.faq.slack import REPLY_TOOL, SlackService
+    from gabe.policy import Decision, Policy
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+    settings = FaqSettings.from_config(cfg)
+    if settings is None or not settings.slack.enabled:
+        print("The Slack FAQ bot is off. Add `- name: faq` under integrations with "
+              "`settings: {slack: {enabled: true}}` (see docs/FAQ_BOT.md).", file=sys.stderr)
+        return 1
+    if Policy.from_config(cfg.policy).decide(REPLY_TOOL) is Decision.ASK:
+        print(f"{BOLD}Note:{RESET} answers need a person's OK (policy), and only the app can give it, so they "
+              "won't be posted. Set `policy: {tools: {reply_on_slack: allow}}` to post them.", file=sys.stderr)
+    service = SlackService(lambda: load_config(args.config_path))
+    last = None
+    try:
+        while True:
+            service.sync()
+            st = service.status()
+            if st != last:
+                print(f"Slack FAQ bot: {st.get('state')}"
+                      + (f" ({st['workspace']})" if st.get("workspace") else "")
+                      + (f": {st['error']}" if st.get("error") else ""), file=sys.stderr)
+                last = st
+            time.sleep(15)
+    except KeyboardInterrupt:
+        service.stop()
+        return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     load_dotenv()
     ap = argparse.ArgumentParser(prog="gabe", description="Gabe, your AI chief of staff.")
@@ -234,6 +269,7 @@ def main(argv: list[str] | None = None) -> int:
     auth = sub.add_parser("auth", help="Authorise an integration")
     auth.add_argument("service", choices=["gmail"])
     sub.add_parser("check", help="Check the config folder (after editing it by hand or with Claude Code)")
+    sub.add_parser("slack", help="Run the Slack FAQ bot on its own (no desktop app)")
     sub.add_parser("app", help="Open the Gabe desktop app from source")
     web = sub.add_parser("web", help="Serve the app UI to a browser (for development)")
     web.add_argument("--host", default="127.0.0.1", help="Address to listen on (default: this computer only)")
@@ -253,7 +289,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if report.ok else 1
     cfg = load_config(args.config)
     args.config_path = args.config or os.environ.get("GABE_CONFIG", "config/gabe.yaml")
-    handler = {"brief": _brief, "schedule": _schedule, "auth": _auth, "usage": _usage, "web": _web}.get(args.command, _chat)
+    handler = {"brief": _brief, "schedule": _schedule, "auth": _auth, "usage": _usage, "web": _web, "slack": _slack}.get(args.command, _chat)
     return handler(cfg, args)
 
 

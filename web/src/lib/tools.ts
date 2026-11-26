@@ -30,6 +30,10 @@ export const TOOLS: Record<string, ToolInfo> = {
   open_claude_code: { label: "Open Claude Code", area: "settings", past: () => "Opened Claude Code", ask: "open Claude Code" },
   edit_settings: { label: "Change settings", area: "settings", past: (i) => `Changed settings${i?.section ? ` (${i.section})` : ""}`, ask: "change settings" },
   edit_playbook: { label: "Edit a playbook", area: "settings", past: (i) => `Edited the ${i?.name ?? ""} playbook`, ask: "edit a playbook" },
+  search_faq: { label: "Search the FAQ", area: "settings", past: (i) => `Searched the FAQ${i?.query ? ` for ${q(i.query)}` : ""}`, ask: "search the FAQ" },
+  reply_on_slack: { label: "Answer a customer on Slack", area: "ask", past: (i) => `Answered a question in ${i?.channel ?? "Slack"}`, ask: "answer a customer on Slack" },
+  upload_faq: { label: "Upload an FAQ document", area: "settings", past: (i) => `Uploaded ${i?.name ?? "an FAQ document"}`, ask: "upload an FAQ document" },
+  delete_faq: { label: "Remove an FAQ document", area: "settings", past: (i) => `Removed ${i?.name ?? "an FAQ document"}`, ask: "remove an FAQ document" },
   delete_playbook: { label: "Delete a playbook", area: "settings", past: (i) => `Deleted the ${i?.name ?? ""} playbook`, ask: "delete a playbook" },
 };
 

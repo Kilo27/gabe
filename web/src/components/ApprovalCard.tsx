@@ -83,6 +83,19 @@ function EmailView({ args }: { args: Record<string, any> }) {
   );
 }
 
+/** A drafted answer to a customer's question in Slack. */
+function SlackReplyView({ args }: { args: Record<string, any> }) {
+  return (
+    <div className="letter">
+      <dl>
+        <dt>Where</dt><dd>{args.channel}</dd>
+        <dt>Question</dt><dd className="letter-subject">{args.question}</dd>
+      </dl>
+      <div className="letter-body">{args.reply}</div>
+    </div>
+  );
+}
+
 function GenericView({ args }: { args: Record<string, any> }) {
   return (
     <dl className="kv">
@@ -100,6 +113,13 @@ const splitList = (s: string) => s.split(/[,;\n]/).map((x) => x.trim()).filter(B
 
 function Editor({ a, value, onChange }: { a: Approval; value: Record<string, any>; onChange: (v: Record<string, any>) => void }) {
   if (a.tool === "add_team_member") return <NewMemberEditor value={value} onChange={onChange} />;
+  if (a.tool === "reply_on_slack") {
+    return (
+      <Field label="Answer">
+        <textarea className="textarea" rows={6} value={value.reply ?? ""} onChange={(e) => onChange({ ...value, reply: e.target.value })} />
+      </Field>
+    );
+  }
   if (EMAIL_TOOLS.includes(a.tool)) {
     return (
       <div className="stack" style={{ gap: 12 }}>
@@ -257,6 +277,8 @@ function ApprovalDecision({ a, compact }: { a: Approval; compact?: boolean }) {
           <Editor a={a} value={draft} onChange={setDraft} />
         ) : a.tool === "add_team_member" ? (
           <NewMemberView args={a.args} />
+        ) : a.tool === "reply_on_slack" ? (
+          <SlackReplyView args={a.args} />
         ) : EMAIL_TOOLS.includes(a.tool) ? (
           <EmailView args={a.args} />
         ) : (

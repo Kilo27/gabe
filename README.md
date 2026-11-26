@@ -23,6 +23,7 @@ gabe -m "Give me the weekly brief"  # one-shot
 gabe brief                          # today's daily briefing (saved to data/briefings/)
 gabe schedule                       # run the briefing every weekday at the configured time
 gabe auth gmail                     # connect Gmail (see docs/GMAIL_SETUP.md)
+gabe slack                          # run the Slack FAQ bot on its own (see docs/FAQ_BOT.md)
 gabe --unattended -m "..."          # refuses anything that needs approval
 pytest                              # tests use a scripted provider, no API calls
 ```
@@ -139,6 +140,10 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design.
 - `email`: Gmail / Google Workspace, one or more mailboxes (`settings.accounts`; add them in the web app) (`search_email`, `read_email`, `draft_email`,
   `send_email`, `mark_email_read`), or an `outbox` backend that saves outgoing mail to disk without delivering it. See [docs/GMAIL_SETUP.md](docs/GMAIL_SETUP.md).
 - `mcp`: any [MCP](https://modelcontextprotocol.io) server's tools (see below).
+- `faq`: the FAQ bot. Upload FAQ documents (text, Markdown, Word, CSV, JSON) and Gabe answers
+  customers' questions in Slack from them, in a thread, under your approval rules; what it
+  can't answer goes to a team channel and/or the task list. Also gives Gabe a `search_faq`
+  action. See [docs/FAQ_BOT.md](docs/FAQ_BOT.md).
 
 ## MCP servers
 
@@ -279,7 +284,8 @@ The first edit on the Agents screen moves them into `team.yaml`.
 ## Planned
 
 - Web UI: [docs/UI_PLAN.md](docs/UI_PLAN.md)
-- Slack integration: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#roadmap)
+- Slack integration (talking to Gabe, approvals in Slack): [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#roadmap).
+  The customer FAQ bot is done: [docs/FAQ_BOT.md](docs/FAQ_BOT.md).
 
 Every tool call is appended to `data/audit.jsonl`.
 
