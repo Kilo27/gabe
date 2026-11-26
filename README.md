@@ -21,7 +21,8 @@ curl -fsSL https://raw.githubusercontent.com/Kilo27/gabe/main/install.sh | sh
 ```
 
 It downloads the latest build, puts Gabe in Applications and opens it. Nothing else to install;
-Gabe keeps itself up to date after that. Needs an Apple silicon Mac (M1 or later).
+Gabe keeps itself up to date after that. Needs an Apple silicon Mac (M1 or later). No admin
+rights needed: on a standard account it goes in your own Applications folder (`~/Applications`).
 
 Or download **Gabe.dmg** from the [mac-latest release](https://github.com/Kilo27/gabe/releases/tag/mac-latest)
 and drag Gabe to Applications. Until builds are notarized (see below), macOS blocks the first

@@ -149,6 +149,7 @@ def test_mac_install_swaps_in_the_download_and_quits(make, monkeypatch, tmp_path
         z.writestr("Gabe.app/Contents/Info.plist", b"<plist/>")
     routes = {**ROUTES, "/repos/o/r/releases/assets/2": buf.getvalue()}
     app = tmp_path / "Apps" / "Gabe.app"
+    app.parent.mkdir()
     monkeypatch.setattr(upd, "app_bundle", lambda: app)
     monkeypatch.setattr(upd.threading, "Timer", lambda t, fn: type("T", (), {"start": lambda self: fn()})())
     u = make(routes=routes)
@@ -162,6 +163,19 @@ def test_mac_install_swaps_in_the_download_and_quits(make, monkeypatch, tmp_path
     assert f"ditto '{u.dir / 'new' / 'Gabe.app'}' '{app}'" in script and f"open '{app}'" in script
     assert spawned == [["/bin/sh", str(u.dir / "update.sh")]]
     assert json.loads(u.attempt_file.read_text())["sha"] == NEW
+
+
+def test_mac_install_in_a_folder_this_account_cant_change(make, monkeypatch, tmp_path):
+    apps = tmp_path / "Apps"
+    apps.mkdir()
+    apps.chmod(0o555)
+    monkeypatch.setattr(upd, "app_bundle", lambda: apps / "Gabe.app")
+    u = make()
+    try:
+        with pytest.raises(UpdateError, match="can't change"):
+            u.install()
+    finally:
+        apps.chmod(0o755)
 
 
 def test_settle_reports_success_after_restart(make, monkeypatch):
