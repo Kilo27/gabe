@@ -40,6 +40,10 @@ def make_provider(cfg: dict[str, Any]) -> Provider:
     elif kind == "openai_compatible":
         from gabe.providers.openai_compatible import OpenAICompatibleProvider
 
+        import os
+        env_name = opts.pop("api_key_env", None)
+        if env_name and not opts.get("api_key"):
+             opts["api_key"] = os.environ.get(env_name) or "EMPTY"
         provider = OpenAICompatibleProvider(**opts)
     else:
         raise ValueError(f"unknown provider kind '{kind}'")
