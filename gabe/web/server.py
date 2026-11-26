@@ -1141,6 +1141,17 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
         except Exception as e:
             bad(friendly_error(e), 502)
 
+    @app.get("/api/faq/channels")
+    def faq_channels():
+        """The channels the Slack bot can see, and which ones it's in."""
+        faq_settings()
+        try:
+            return slack.bot().channels()
+        except RuntimeError as e:
+            bad(str(e), 409)
+        except Exception as e:
+            bad(f"Couldn't list Slack channels: {e}", 502)
+
     @app.put("/api/faq/settings")
     def faq_save(payload: dict = Body(...)):
         current = faq_settings()
@@ -1181,8 +1192,14 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
 
         edit_faq(fn)
         person_audit("edit_settings", {"section": "faq"})
+        joined: dict[str, str] = {}
+        if new.enabled and new.channels and slack.status().get("state") == "connected":
+            try:
+                joined = slack.bot().join(new.channels)  # so it sees the questions asked there
+            except Exception as e:
+                log.warning("couldn't join Slack channels: %s", e)
         resync_slack()
-        return faq()
+        return {**faq(), "joined": joined}
 
     @app.put("/api/faq/tokens")
     def faq_tokens(payload: dict = Body(...)):

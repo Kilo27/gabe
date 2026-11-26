@@ -61,7 +61,7 @@ MANIFEST = {
     "features": {"bot_user": {"display_name": "Gabe", "always_online": True},
                  "app_home": {"messages_tab_enabled": True, "messages_tab_read_only_enabled": False}},
     "oauth_config": {"scopes": {"bot": [
-        "app_mentions:read", "channels:history", "channels:read", "groups:history", "groups:read",
+        "app_mentions:read", "channels:history", "channels:join", "channels:read", "groups:history", "groups:read",
         "im:history", "im:read", "mpim:history", "chat:write", "users:read",
     ]}},
     "settings": {
@@ -162,6 +162,47 @@ class SlackFaqBot:
                 self._channels = names
                 self._channel_names = {v: k for k, v in names.items()}
             self._channels_at = time.time()
+
+    def channels(self) -> list[dict[str, Any]]:
+        """Every channel the bot can see: public ones, and private ones it has been added to."""
+        out, cursor = [], None
+        while True:
+            r = _ok(self.web.conversations_list(types="public_channel,private_channel", limit=1000,
+                                                 exclude_archived=True, cursor=cursor))
+            for c in r.get("channels", []):
+                out.append({"id": c["id"], "name": c.get("name", c["id"]), "private": bool(c.get("is_private")),
+                            "member": bool(c.get("is_member")), "members": c.get("num_members")})
+            cursor = (r.get("response_metadata") or {}).get("next_cursor")
+            if not cursor:
+                break
+        with self._lock:
+            self._channels = {c["name"]: c["id"] for c in out}
+            self._channel_names = {c["id"]: c["name"] for c in out}
+            self._channels_at = time.time()
+        return sorted(out, key=lambda c: c["name"])
+
+    def join(self, refs: list[str]) -> dict[str, str]:
+        """Join each channel the bot isn't in yet, so it sees the questions there. Private
+        channels (and workspaces where the app can't join by itself) need an /invite."""
+        known = {c["id"]: c for c in self.channels()}
+        out = {}
+        for ref in refs:
+            cid = self.channel_id(ref)
+            c = known.get(cid)
+            if c is None:
+                out[ref] = "not_found"
+            elif c["member"]:
+                out[cid] = "member"
+            elif c["private"]:
+                out[cid] = "needs_invite"
+            else:
+                try:
+                    self.web.conversations_join(channel=cid)
+                    out[cid] = "joined"
+                except Exception as e:
+                    log.info("couldn't join %s: %s", cid, e)
+                    out[cid] = "needs_invite"
+        return out
 
     def channel_id(self, ref: str) -> str:
         """A channel given as an id (C0123) or a name (#help, help)."""
@@ -505,6 +546,12 @@ class SlackService:
             self._pool.shutdown(wait=False)
         self._client = self._bot = self._pool = None
         self._sig = None
+
+    def bot(self) -> SlackFaqBot:
+        """The connected bot, for listing and joining channels."""
+        if self._bot is None:
+            raise RuntimeError("Slack isn't connected.")
+        return self._bot
 
     def stop(self) -> None:
         with self._lock:

@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Copy, ExternalLink, FileText, Loader2, MessageCircleQuestion, Send, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Copy, ExternalLink, FileText, Hash, Loader2, Lock, MessageCircleQuestion, Send, Trash2, Upload } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 import { NavLink } from "react-router-dom";
-import { api, native, type Faq, type FaqAnswer, type FaqDoc, type FaqQuestion } from "../api";
+import { api, native, type Faq, type FaqAnswer, type FaqChannel, type FaqDoc, type FaqQuestion } from "../api";
 import { Chip, Field, Notice, Segmented, SkeletonList, useToast } from "../components/ui";
 import { plural, when } from "../lib/format";
 import { DECISION_WORDS } from "../lib/tools";
@@ -217,19 +217,88 @@ function Tokens({ f }: { f: Faq }) {
   );
 }
 
+/** Which channels Gabe answers in: every one it's in, or the ones ticked here. */
+function ChannelPicker({ connected, value, onChange, joined }: {
+  connected: boolean; value: string[]; onChange: (v: string[]) => void; joined: Record<string, string>;
+}) {
+  const [only, setOnly] = useState(value.length > 0);
+  const list = useQuery({
+    queryKey: ["faq-channels"],
+    queryFn: () => api.get<FaqChannel[]>("/api/faq/channels"),
+    enabled: connected,
+    refetchInterval: 30000,
+  });
+  const channels = list.data ?? [];
+  const byId = new Set(channels.map((c) => c.id));
+  // Channels saved by name (or no longer visible) still show, so they can be unticked.
+  const extra = value.filter((v) => !byId.has(v) && !channels.some((c) => `#${c.name}` === v || c.name === v));
+  const isOn = (c: FaqChannel) => value.includes(c.id) || value.includes(`#${c.name}`) || value.includes(c.name);
+  const toggle = (c: FaqChannel) => onChange(isOn(c)
+    ? value.filter((v) => v !== c.id && v !== `#${c.name}` && v !== c.name)
+    : [...value, c.id]);
+  return (
+    <div className="field">
+      <span>Channels</span>
+      <Segmented label="Channels" value={only ? "only" : "all"} onChange={(v) => { setOnly(v === "only"); if (v === "all") onChange([]); }} options={[
+        { value: "all", label: "Every channel it's in" },
+        { value: "only", label: "Only these" },
+      ]} />
+      {only && (!connected ? <p className="faint">Connect Slack to pick channels.</p>
+        : list.isLoading ? <Loader2 size={15} className="spin" />
+        : list.error ? <Notice hue="danger" icon={AlertTriangle}>{(list.error as Error).message}</Notice>
+        : (
+          <ul className="mailboxes channel-list">
+            {channels.map((c) => {
+              const state = joined[c.id];
+              return (
+                <li key={c.id}>
+                  <label className="check grow">
+                    <input type="checkbox" checked={isOn(c)} onChange={() => toggle(c)} />
+                    {c.private ? <Lock size={14} /> : <Hash size={14} />}
+                    <span className="faq-q-text">{c.name}</span>
+                  </label>
+                  {state === "joined" ? <Chip hue="tasks" dot>Joined</Chip>
+                    : (state === "needs_invite" || (isOn(c) && !c.member)) ? <Chip hue="approvals" dot title={`Type /invite @Gabe in #${c.name}`}>Invite Gabe</Chip>
+                    : c.member ? <span className="faint">In channel</span> : null}
+                </li>
+              );
+            })}
+            {extra.map((v) => (
+              <li key={v}>
+                <label className="check grow">
+                  <input type="checkbox" checked onChange={() => onChange(value.filter((x) => x !== v))} />
+                  <Hash size={14} /> <span className="faq-q-text">{v.replace(/^#/, "")}</span>
+                </label>
+                <Chip hue="danger" dot>Not found</Chip>
+              </li>
+            ))}
+            {channels.length === 0 && extra.length === 0 && <li className="faint">No channels.</li>}
+          </ul>
+        ))}
+    </div>
+  );
+}
+
 function SlackSection({ f }: { f: Faq }) {
   const s = f.slack;
   const [form, setForm] = useState({
-    enabled: s.enabled, answer: s.answer, channels: s.channels.join(", "), staff: s.staff.join(", "),
+    enabled: s.enabled, answer: s.answer, channels: s.channels, staff: s.staff.join(", "),
     direct_messages: s.direct_messages, follow_ups: s.follow_ups, per_user_per_hour: String(s.per_user_per_hour),
     notify_channel: s.notify_channel, create_task: s.create_task, task_owner: s.task_owner, holding_reply: s.holding_reply,
     tone: f.tone, model: f.model,
   });
   const set = (patch: Partial<typeof form>) => setForm({ ...form, ...patch });
-  const save = useFaqMutation(() => api.put<Faq>("/api/faq/settings", {
-    tone: form.tone, model: form.model,
-    slack: { ...form, channels: list(form.channels), staff: list(form.staff), per_user_per_hour: Number(form.per_user_per_hour) || 0, tone: undefined, model: undefined },
-  }), "Saved");
+  const [joined, setJoined] = useState<Record<string, string>>({});
+  const qc = useQueryClient();
+  const save = useFaqMutation(async () => {
+    const r = await api.put<Faq & { joined?: Record<string, string> }>("/api/faq/settings", {
+      tone: form.tone, model: form.model,
+      slack: { ...form, staff: list(form.staff), per_user_per_hour: Number(form.per_user_per_hour) || 0, tone: undefined, model: undefined },
+    });
+    setJoined(r.joined ?? {});
+    qc.invalidateQueries({ queryKey: ["faq-channels"] });
+    return r;
+  }, "Saved");
   const st = STATUS[f.status.state] ?? STATUS.off;
   const rule = DECISION_WORDS[f.reply_rule];
   return (
@@ -256,8 +325,8 @@ function SlackSection({ f }: { f: Faq }) {
           { value: "external", label: "Guests and other workspaces" },
         ]} />
       </div>
+      <ChannelPicker connected={f.status.state === "connected"} value={form.channels} onChange={(channels) => set({ channels })} joined={joined} />
       <div className="form-grid">
-        <Field label="Only these channels"><input className="input" value={form.channels} onChange={(e) => set({ channels: e.target.value })} placeholder="All it's added to" /></Field>
         <Field label="Staff (member IDs)"><input className="input" value={form.staff} onChange={(e) => set({ staff: e.target.value })} placeholder="U0123ABC" /></Field>
         <Field label="Replies per person per hour"><input className="input" type="number" min={0} value={form.per_user_per_hour} onChange={(e) => set({ per_user_per_hour: e.target.value })} /></Field>
         <Field label="Model">

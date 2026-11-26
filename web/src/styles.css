@@ -785,3 +785,5 @@ li[data-unread="true"] .mail-from::before { background: var(--inbox); }
 .faq-q-text { overflow-wrap: anywhere; }
 .faq-doc { display: flex; align-items: center; gap: 4px; padding-right: 8px; }
 .faq-doc .faq-q > svg { flex: none; color: var(--ink-3); }
+.channel-list { max-height: 320px; overflow-y: auto; }
+.channel-list .check svg { color: var(--ink-3); flex: none; }

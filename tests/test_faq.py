@@ -142,7 +142,15 @@ class FakeSlack:
         return {"user": self.users.get(user, {"id": user, "name": user, "team_id": "T1"})}
 
     def conversations_list(self, **kw):
-        return {"channels": [{"id": "CHELP", "name": "help"}, {"id": "CTEAM", "name": "support-team"}]}
+        return {"channels": [{"id": "CHELP", "name": "help", "is_member": True},
+                             {"id": "CTEAM", "name": "support-team", "is_member": "CTEAM" in self.joined},
+                             {"id": "GVIP", "name": "vip", "is_private": True}]}
+
+    joined = ()
+
+    def conversations_join(self, channel):
+        self.joined = (*self.joined, channel)
+        return {"ok": True}
 
     def conversations_replies(self, **kw):
         return {"messages": self.replies}
@@ -369,3 +377,14 @@ def test_service_connects_acks_and_hands_events_to_the_bot(slack_cfg, monkeypatc
     assert clients[0].closed and len(clients) == 2
     svc.stop()
     assert clients[1].closed and svc.status() == {"state": "off"}
+
+
+def test_lists_and_joins_channels(slack_cfg):
+    web = FakeSlack()
+    b, _ = bot(slack_cfg(), web, [])
+    assert [(c["name"], c["member"], c["private"]) for c in b.channels()] == [
+        ("help", True, False), ("support-team", False, False), ("vip", False, True)]
+    assert b.join(["CHELP", "#support-team", "GVIP", "#nope"]) == {
+        "CHELP": "member", "CTEAM": "joined", "GVIP": "needs_invite", "#nope": "not_found"}
+    assert web.joined == ("CTEAM",)
+    assert b.handle(msg("refund?", channel="CTEAM")) != "ignored"  # every channel it's in by default

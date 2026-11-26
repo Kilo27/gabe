@@ -151,6 +151,7 @@ export type Proposal = { role: string; name: string; description: string; instru
 export type FreedomLevel = { key: string; label: string; explanation: string };
 export type AgentsData = { day: string; today: string; agents: Agent[]; timeline: Record<string, TimelineItem[]>; request: (Job & { result?: Proposal }) | null; freedom_levels: FreedomLevel[] };
 
+export type FaqChannel = { id: string; name: string; private: boolean; member: boolean; members: number | null };
 export type FaqDoc = { name: string; entries: number; questions: number; size: number; updated: string; error: string };
 export type FaqAnswer = { outcome: "answered" | "not_covered" | "not_a_question" | "no_faq"; text: string | null; used: { id: string; question: string; source: string }[] };
 export type FaqQuestion = {
