@@ -9,6 +9,7 @@ hidden = (
     collect_submodules("gabe")            # integrations are imported by name at runtime
     + collect_submodules("uvicorn")
     + collect_submodules("keyring.backends")
+    + collect_submodules("slack_sdk.socket_mode")  # Slack FAQ bot (imported lazily)
     + collect_submodules("mcp", filter=lambda n: not n.startswith("mcp.cli"))  # MCP client (lazy); its CLI needs typer
     + ["googleapiclient.discovery", "google_auth_oauthlib.flow",
        "UserNotifications", "AppKit", "Foundation", "PyObjCTools.AppHelper"]  # notifications, Dock badge

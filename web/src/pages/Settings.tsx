@@ -6,6 +6,7 @@ import { GoogleButton } from "../components/GoogleButton";
 import { api, native, type Decision, type Job, type Settings } from "../api";
 import { Field, Markdown, Notice, PageHeader, Segmented, SkeletonList, useToast } from "../components/ui";
 import { DECISION_WORDS, RISK, humanize, tool } from "../lib/tools";
+import FaqBot from "./FaqBot";
 
 const TABS = [
   ["company", "Company"],
@@ -13,6 +14,7 @@ const TABS = [
   ["rules", "Approval rules"],
   ["email", "Email"],
   ["connections", "Connections"],
+  ["faq", "FAQ bot"],
   ["playbooks", "Playbooks"],
   ["customize", "Customize"],
   ["model", "API key"],
@@ -366,7 +368,7 @@ function Model({ s }: { s: Settings }) {
 export default function SettingsPage() {
   const { tab = "company" } = useParams<{ tab: Tab }>();
   const { data, isLoading, error } = useQuery({ queryKey: ["settings"], queryFn: () => api.get<Settings>("/api/settings") });
-  const Body = { company: Company, brief: Brief, rules: Rules, email: Email, connections: Connections, playbooks: Playbooks, customize: Customize, model: Model }[tab as Tab] ?? Company;
+  const Body = { company: Company, brief: Brief, rules: Rules, email: Email, connections: Connections, faq: FaqBot, playbooks: Playbooks, customize: Customize, model: Model }[tab as Tab] ?? Company;
   return (
     <>
       <PageHeader area="settings" />

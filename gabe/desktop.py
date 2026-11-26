@@ -26,7 +26,7 @@ from pathlib import Path
 
 APP_NAME = "Gabe"
 KEYRING_SERVICE = "Gabe"
-API_KEY_NAMES = ("ANTHROPIC_API_KEY",)
+API_KEY_NAMES = ("ANTHROPIC_API_KEY", "SLACK_BOT_TOKEN", "SLACK_APP_TOKEN")
 
 log = logging.getLogger("gabe.desktop")
 
@@ -173,6 +173,8 @@ def describe_request(rec: dict) -> tuple[str, str]:
         body = f"Add {args.get('name', 'a new bot')} to the team"
     elif tool == "change_gabe":
         body = f"Change Gabe's setup: {args.get('request', '')}"
+    elif tool == "reply_on_slack":
+        body = f"Answer in {args.get('channel', 'Slack')}: {args.get('question', '')}"
     else:
         body = tool.replace("_", " ").capitalize()
     return f"{who} needs your OK", body

@@ -25,9 +25,11 @@ from gabe import schedules
 from gabe.app import team_skills
 from gabe.briefing import DAYS, BriefingSettings, build_briefer, company_tz, email_briefing, next_run, run_briefing
 from gabe.claude_code import find_claude, open_in_terminal
+from gabe.faq.slack import BOT_NAME as FAQ_BOT, REPLY_TOOL, SlackService
 from gabe.integrations import IntegrationContext, load_integrations
 from gabe.integrations._store import JsonStore
-from gabe.policy import Policy
+from gabe.policy import Declined, Policy
+from gabe.providers import make_provider
 from gabe.tools.registry import Risk, Tool, ToolRegistry
 from gabe.web.state import WebState, check_args, friendly_error, new_id, now
 
@@ -37,8 +39,14 @@ PERSON = "You (web app)"
 DECISIONS = ("allow", "ask", "deny")
 
 
+def faq_provider(cfg):
+    """The model the FAQ bot answers with (tests swap this out)."""
+    return make_provider(cfg.provider)
+
+
 def create_app(config_path: str | Path, token: str | None = None, desktop: bool = False,
-               resume_when: "threading.Event | None" = None, run_schedules: bool = True) -> FastAPI:
+               resume_when: "threading.Event | None" = None, run_schedules: bool = True,
+               run_slack: bool = True) -> FastAPI:
     """`token`: when set, every /api call must carry it (X-Gabe-Token). The desktop app sets a
     fresh one per launch so other programs and web pages on this computer can't use the API."""
     state = WebState(Path(config_path))
@@ -68,6 +76,38 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
 
     if run_schedules:
         threading.Thread(target=recurring_jobs, daemon=True, name="recurring-jobs").start()
+
+    def faq_approver(tool, args):
+        """A drafted Slack answer waits on the Approvals screen (policy "ask" for reply_on_slack)."""
+        rec = state.approvals.create(
+            session_id="", message_id="", session_title="Slack", agent=FAQ_BOT, tool=tool.name,
+            risk=tool.risk.value, integration=tool.integration, description=tool.description,
+            args=dict(args), reason=f"A customer asked this in {args.get('channel', 'Slack')}.",
+        )
+        decided = state.approvals.wait(rec["id"])
+        if decided.get("status") == "approved":
+            args.clear()
+            args.update(decided["args"])
+            return True
+        return Declined(decided.get("note", ""))
+
+    slack = SlackService(state.config, approver=faq_approver, on_usage=state.record_usage,
+                         provider_factory=lambda cfg: faq_provider(cfg))
+    app.state.slack = slack
+
+    def slack_bot():
+        # The Slack FAQ bot stays connected while the app is open, and follows settings changes.
+        if resume_when is not None:
+            resume_when.wait()
+        while True:
+            try:
+                slack.sync()
+            except Exception:
+                log.exception("Slack FAQ bot check failed")
+            time.sleep(15)
+
+    if run_slack:
+        threading.Thread(target=slack_bot, daemon=True, name="slack-faq").start()
 
     if token:
         import hmac
@@ -105,6 +145,8 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
     def find_tool(name: str):
         """A tool by name, including Gabe's own (delegate, add_team_member), to check edited input."""
         cfg = state.config()
+        if name == REPLY_TOOL.name:
+            return REPLY_TOOL
         if name in ("delegate", "add_team_member", "schedule_job", "update_schedule", "cancel_schedule"):
             from gabe.app import build_gabe
             from gabe.policy import deny_all
@@ -709,6 +751,8 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
             t = find_tool("delegate")
             if t:
                 tools.append(t)
+        if any(i.name == "faq" for i in cfg.integrations):
+            tools.append(REPLY_TOOL)
         for t in tools:
             source = "tool" if t.name in tools_cfg else "integration" if t.integration in integ_cfg else "default"
             rows.append({"name": t.name, "risk": t.risk.value, "integration": t.integration,
@@ -728,6 +772,8 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
             entry = {"name": spec.name, "settings": {k: v for k, v in spec.settings.items() if "key" not in k.lower()}}
             if spec.name == "email":
                 entry["status"] = gmail_status()
+            if spec.name == "faq":
+                entry["settings"] = {}  # see /api/faq
             if spec.name == "mcp":
                 # Server configs carry tokens (env, headers, args): only names and state go out.
                 from gabe.integrations import mcp as mcp_integration
@@ -977,6 +1023,194 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
         p.unlink()
         person_audit("delete_playbook", {"name": p.stem})
         return {"ok": True}
+
+    # -- FAQ bot -----------------------------------------------------------------
+    # Documents in the FAQ folder (config/faq/), the Slack connection and what customers asked.
+
+    from gabe.faq.answer import FaqResponder
+    from gabe.faq.library import FaqLibrary
+    from gabe.faq.settings import ANSWER_MODES, APP_TOKEN_ENV, BOT_TOKEN_ENV, FaqSettings, SlackSettings
+    from gabe.faq.slack import MANIFEST, question_log
+
+    def faq_settings() -> FaqSettings:
+        s = FaqSettings.from_config(state.config())
+        if s is None:
+            bad("The FAQ bot isn't turned on.", 409)
+        return s
+
+    def edit_faq(fn) -> None:
+        """Change the faq integration's settings in gabe.yaml (adding it if needed)."""
+        def edit(raw):
+            items = raw.setdefault("integrations", []) or []
+            raw["integrations"] = items
+            for i, it in enumerate(items):
+                if it == "faq" or (isinstance(it, dict) and it.get("name") == "faq"):
+                    if not isinstance(it, dict):
+                        it = items[i] = {"name": "faq", "settings": {}}
+                    it["settings"] = it.get("settings") or {}
+                    fn(it["settings"])
+                    return
+            entry = {"name": "faq", "settings": {"folder": "faq"}}
+            fn(entry["settings"])
+            items.append(entry)
+        state.edit_config(edit)
+
+    def resync_slack() -> None:
+        if run_slack:
+            threading.Thread(target=slack.sync, daemon=True, name="slack-faq-sync").start()
+
+    @app.get("/api/faq")
+    def faq():
+        cfg = state.config()
+        s = FaqSettings.from_config(cfg)
+        if s is None:
+            return {"enabled": False}
+        manifest = json.loads(json.dumps(MANIFEST))
+        manifest["display_information"]["name"] = cfg.assistant_name
+        manifest["features"]["bot_user"]["display_name"] = cfg.assistant_name
+        sl = s.slack
+        return {
+            "enabled": True,
+            "model": s.model,
+            "tone": s.tone,
+            "documents": [d.summary() for d in FaqLibrary(s.folder).documents()],
+            "slack": {k: v for k, v in vars(sl).items() if k not in ("bot_token", "app_token")}
+                     | {"bot_token_set": bool(sl.bot_token), "app_token_set": bool(sl.app_token)},
+            "status": slack.status(),
+            "reply_rule": Policy.from_config(cfg.policy).decide(REPLY_TOOL).value,
+            "questions": question_log(cfg).recent(100),
+            "manifest": json.dumps(manifest, indent=2),
+            "desktop": desktop,
+        }
+
+    @app.post("/api/faq/enable")
+    def faq_enable():
+        if FaqSettings.from_config(state.config()) is None:
+            edit_faq(lambda st: None)
+            person_audit("edit_settings", {"section": "faq", "action": "turned on"})
+        return faq()
+
+    @app.post("/api/faq/documents")
+    def faq_upload(payload: dict = Body(...)):
+        import base64
+        import binascii
+
+        name = str(payload.get("name", "")).strip()
+        try:
+            data = base64.b64decode(str(payload.get("content_b64", "")), validate=True)
+        except (binascii.Error, ValueError):
+            bad("That file didn't upload properly. Try again.")
+        if not name or not data:
+            bad("Choose a file first.")
+        try:
+            doc = FaqLibrary(faq_settings().folder).add(name, data)
+        except ValueError as e:
+            bad(str(e))
+        person_audit("upload_faq", {"name": doc.name, "entries": len(doc.entries)})
+        return doc.summary()
+
+    @app.get("/api/faq/documents/{name}")
+    def faq_document(name: str):
+        doc = FaqLibrary(faq_settings().folder).document(name)
+        if doc is None:
+            bad("That document doesn't exist.", 404)
+        return {**doc.summary(), "items": [e.to_dict() for e in doc.entries]}
+
+    @app.delete("/api/faq/documents/{name}")
+    def faq_delete(name: str):
+        try:
+            removed = FaqLibrary(faq_settings().folder).remove(name)
+        except ValueError:
+            removed = False
+        if not removed:
+            bad("That document doesn't exist.", 404)
+        person_audit("delete_faq", {"name": name})
+        return {"ok": True}
+
+    @app.post("/api/faq/try")
+    def faq_try(payload: dict = Body(...)):
+        """What the bot would say to this message (nothing is posted)."""
+        question = str(payload.get("question", "")).strip()
+        if not question:
+            bad("Type a question first.")
+        cfg = state.config()
+        responder = FaqResponder(faq_settings(), faq_provider(cfg), assistant=cfg.assistant_name,
+                                 company=str(cfg.company.get("name", "")), on_usage=state.record_usage)
+        try:
+            return responder.answer(question).to_dict()
+        except Exception as e:
+            bad(friendly_error(e), 502)
+
+    @app.put("/api/faq/settings")
+    def faq_save(payload: dict = Body(...)):
+        current = faq_settings()
+        sl = payload.get("slack") or {}
+        answer = sl.get("answer", current.slack.answer)
+        if answer not in ANSWER_MODES:
+            bad("Unknown answer mode.")
+        try:
+            per_hour = int(sl.get("per_user_per_hour", current.slack.per_user_per_hour))
+        except (TypeError, ValueError):
+            bad("Replies per person per hour must be a number.")
+        model = str(payload.get("model", current.model))
+        if model not in ("haiku", "sonnet", "opus"):
+            bad("Unknown model.")
+
+        def ids(v) -> list[str]:
+            return [str(x).strip() for x in (v or []) if str(x).strip()]
+
+        new = SlackSettings(
+            enabled=bool(sl.get("enabled", current.slack.enabled)),
+            channels=ids(sl.get("channels", current.slack.channels)),
+            direct_messages=bool(sl.get("direct_messages", current.slack.direct_messages)),
+            answer=answer,
+            staff=ids(sl.get("staff", current.slack.staff)),
+            follow_ups=bool(sl.get("follow_ups", current.slack.follow_ups)),
+            per_user_per_hour=max(0, per_hour),
+            notify_channel=str(sl.get("notify_channel", current.slack.notify_channel)).strip(),
+            create_task=bool(sl.get("create_task", current.slack.create_task)),
+            task_owner=str(sl.get("task_owner", current.slack.task_owner)).strip(),
+            holding_reply=str(sl.get("holding_reply", current.slack.holding_reply)).strip(),
+        )
+
+        def fn(st):
+            st["model"] = model
+            st["tone"] = str(payload.get("tone", current.tone)).strip()
+            old = st.get("slack") or {}
+            st["slack"] = {**{k: v for k, v in old.items() if k in ("bot_token", "app_token")}, **new.to_dict()}
+
+        edit_faq(fn)
+        person_audit("edit_settings", {"section": "faq"})
+        resync_slack()
+        return faq()
+
+    @app.put("/api/faq/tokens")
+    def faq_tokens(payload: dict = Body(...)):
+        """Slack tokens go in the OS keychain (desktop app), never in gabe.yaml."""
+        changes = {}
+        for field_name, env, prefix in (("bot_token", BOT_TOKEN_ENV, "xoxb-"), ("app_token", APP_TOKEN_ENV, "xapp-")):
+            if field_name not in payload:
+                continue
+            value = str(payload.get(field_name) or "").strip()
+            if value and (not value.startswith(prefix) or any(c.isspace() for c in value)):
+                bad(f"The {'bot' if prefix == 'xoxb-' else 'app'} token starts with {prefix}")
+            changes[env] = value or None
+        for env, value in changes.items():
+            try:
+                from gabe.desktop import set_secret
+
+                set_secret(env, value)
+            except Exception:
+                if desktop:
+                    bad("Couldn't save the token to the keychain.")
+                if value:  # browser/dev mode without a keychain: this run only
+                    os.environ[env] = value
+                else:
+                    os.environ.pop(env, None)
+        person_audit("edit_settings", {"section": "faq", "action": "slack tokens " + ", ".join(
+            f"{k.split('_')[1].lower()} {'set' if v else 'removed'}" for k, v in changes.items())})
+        resync_slack()
+        return faq()
 
     # -- agents ----------------------------------------------------------------
     # Gabe, the briefing writer and every team member (config/team.yaml), as one list.

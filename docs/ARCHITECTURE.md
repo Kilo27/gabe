@@ -95,6 +95,17 @@ previous one's memory, only the last 50 runs are kept, and a run still going (e.
 approval) makes the next one skip. A run that replies `NOTHING TO REPORT` sends no notice; a job
 that keeps failing is announced (and handed to Gabe to fix) once, not every run.
 
+**FAQ bot.** `gabe/faq/`. Documents in the config folder's `faq/` are parsed into Q&A entries
+(`parse.py`, cached by mtime). `FaqResponder` (`answer.py`) is channel-neutral: a small library
+goes whole into a cached system prompt, a large one is searched first by a pluggable retriever
+(`search.py`, BM25 by default), and the model returns JSON (an answer from the entries, or
+`not_covered` / `not_a_question`); unreadable output is never posted. The Slack front end
+(`slack.py`) uses Socket Mode, so it needs no public URL; `SlackService` keeps it connected
+inside the app and follows settings and token changes. Posting is the `reply_on_slack` tool
+(external), decided by `Policy` like any other: "ask" goes through the app's approval queue.
+Questions and outcomes go to `data/faq/questions.jsonl`; answers to the audit log; tokens to
+the usage log as task `faq`.
+
 **Desktop app.** The team is edited and watched from the app's Agents screen
 (`gabe/web/server.py`, `/api/agents`); see the README's Desktop app section. Approvals block
 the run's thread until someone decides in the app (approve, edit then approve, or decline
@@ -105,9 +116,9 @@ with a note); ones still waiting when the app quits expire and Gabe is told no.
 Done: Gmail access (search, read, draft, send), daily briefing (`gabe brief`, `gabe schedule`).
 
 1. **Web UI**: planned in [UI_PLAN.md](UI_PLAN.md). Needs async approvals and persistent sessions first.
-2. **Slack integration**: talk to Gabe in DMs and channels, approve actions with Slack
-   buttons, post the daily brief to a channel. Built on the same API and approval queue
-   as the web UI.
+2. **Slack integration**: done: the customer FAQ bot ([FAQ_BOT.md](FAQ_BOT.md)). Next: talk
+   to Gabe in DMs and channels, approve actions with Slack buttons, post the daily brief to a
+   channel, on the same Socket Mode connection.
 3. More connectors. Done: MCP client (`gabe/integrations/mcp.py`), so any MCP server
    (Calendar, Drive, Slack, Notion, Linear...) plugs in as integrations under the same
    policy. Next: OAuth for remote MCP servers (bearer headers only today), then native
