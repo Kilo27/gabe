@@ -23,25 +23,37 @@ gabe -m "Give me the weekly brief"  # one-shot
 gabe brief                          # today's daily briefing (saved to data/briefings/)
 gabe schedule                       # run the briefing every weekday at the configured time
 gabe auth gmail                     # connect Gmail (see docs/GMAIL_SETUP.md)
+gabe auth calendar                  # connect Google Calendar (same doc)
+gabe slack                          # run the Slack FAQ bot on its own (see docs/FAQ_BOT.md)
 gabe --unattended -m "..."          # refuses anything that needs approval
 pytest                              # tests use a scripted provider, no API calls
 ```
 
-## Desktop app (macOS; Windows next)
+## Desktop app (macOS and Windows)
 
 Gabe ships as a desktop app, not a website. It runs its own local service inside a native
 window; that service only accepts calls from its own window (a fresh token each launch).
 
 ```bash
 pip install -e '.[desktop,gmail,build]'
-packaging/macos/build.sh        # → dist/macos/Gabe.app and Gabe.dmg (needs Node, ImageMagick)
+packaging/macos/build.sh        # → dist/macos/Gabe.app and Gabe.dmg, installed to /Applications (needs Node, ImageMagick)
 gabe app                        # run it from source instead
 ```
 
+Windows: `packaging\windows\build.ps1` on a Windows PC (needs Python, Node, Inno Setup 6) gives
+`dist\windows\GabeSetup.exe` (installs per user, no admin) and the app folder
+`dist\windows\Gabe\Gabe.exe`. It can't be built on a Mac: the **Windows app** GitHub Actions
+workflow builds it on every PR and push to `main`, and attaches `GabeSetup.exe` to a release for
+`v*` tags. Add a `GOOGLE_OAUTH_CLIENT_JSON` repo secret to include Sign in with Google. Settings
+live in `%APPDATA%\Gabe\`, the API key in Windows Credential Manager.
+
+- The build quits a running Gabe and replaces `/Applications/Gabe.app`, so it survives the
+  checkout being deleted. `INSTALL=0` skips that; `INSTALL_DIR=~/Applications` installs there.
 - Settings and data live in `~/Library/Application Support/Gabe/` (`config/`, `data/`); the
   first launch copies a starter config there. `GABE_HOME` overrides the location.
 - The Anthropic API key is entered in Settings → AI model and kept in the macOS Keychain.
 - Gmail: Settings → Email → Choose file… (the Google OAuth client JSON), then Connect Gmail.
+- Google Calendar: Settings → Calendar → Sign in with Google. Today shows the day's meetings.
 - The daily brief is written on schedule while the app is open. If it was missed (the app
   was closed or crashed at brief time), it's written when the app next starts.
 - Work cut off by a restart or crash is picked up again on start. Gabe gets the original
@@ -50,6 +62,11 @@ gabe app                        # run it from source instead
 - Attach a task when you give a bot a job (the paperclip on an agent card or in a
   conversation), or use "Give to a bot" on a task. The bot gets the task's details and is
   asked to keep it updated, and the task shows which bot has it.
+- Recurring jobs: ask Gabe ("check my email every half hour", "every Monday at 9, chase
+  overdue tasks") and it sets one up. Each run happens in its own conversation with a fresh
+  memory, under the same approvals as anything else, and stays quiet when there's nothing to
+  report. They run while the app is open (a missed run happens once on the next start) and are
+  listed on the Tasks screen, where you can run, pause or delete them.
 - When Gabe or a bot asks you something (`ask_user`) or needs an approval, you get a macOS
   notification (click it to answer), a Dock badge with the count, and a banner in the app.
   The run waits for your answer. The first time, macOS asks to allow Gabe's notifications.
@@ -124,11 +141,19 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design.
 - `tasks`: create, list and update tasks with owners and due dates
 - `email`: Gmail / Google Workspace, one or more mailboxes (`settings.accounts`; add them in the web app) (`search_email`, `read_email`, `draft_email`,
   `send_email`, `mark_email_read`), or an `outbox` backend that saves outgoing mail to disk without delivering it. See [docs/GMAIL_SETUP.md](docs/GMAIL_SETUP.md).
+- `calendar`: Google Calendar, or a `local` practice calendar where nobody is invited
+  (`list_events`, `find_free_time`, `block_time`, `create_event`, `update_event`,
+  `cancel_event`, `respond_to_invite`). Anything guests see asks first by default; the daily
+  brief includes today's meetings. See [docs/GMAIL_SETUP.md](docs/GMAIL_SETUP.md#google-calendar).
 - `mcp`: any [MCP](https://modelcontextprotocol.io) server's tools (see below).
+- `faq`: the FAQ bot. Upload FAQ documents (text, Markdown, Word, CSV, JSON) and Gabe answers
+  customers' questions in Slack from them, in a thread, under your approval rules; what it
+  can't answer goes to a team channel and/or the task list. Also gives Gabe a `search_faq`
+  action. See [docs/FAQ_BOT.md](docs/FAQ_BOT.md).
 
 ## MCP servers
 
-Plug in existing MCP servers (Notion, Linear, Slack, Google Calendar...) with
+Plug in existing MCP servers (Notion, Linear, Slack...) with
 `pip install -e '.[mcp]'` and an `mcp` entry under `integrations:`:
 
 ```yaml
@@ -191,7 +216,9 @@ Claude Code (your own notes go in `CLAUDE.local.md`).
 `gabe brief` runs a **read-only** Gabe. It can look at tasks, notes and email, but it
 can't change or send anything. It writes the brief to the terminal and to
 `data/briefings/YYYY-MM-DD.md`, using the structure in
-`config/playbooks/daily-brief.md`. `gabe schedule` runs it at `briefing.time` on
+`config/playbooks/daily-brief.md`. With the calendar on, the day's meetings are fetched
+before the brief is written and always appear in it (any the writer leaves out are added
+under "Today's calendar"). `gabe schedule` runs it at `briefing.time` on
 `briefing.days`. Alternatively, call `gabe brief` from cron or launchd.
 
 If `briefing.email_to` is set, the finished brief is also emailed through the connected
@@ -212,7 +239,7 @@ direct reports (up to 4 levels deep). The example team in `config/team.yaml`:
 
 ```
 Gabe
-├── Operations lead ── Scheduler
+├── Operations lead ── Scheduler (tasks and calendar)
 ├── Communications ─── Inbox triage
 └── Notes keeper
 ```
@@ -265,7 +292,8 @@ The first edit on the Agents screen moves them into `team.yaml`.
 ## Planned
 
 - Web UI: [docs/UI_PLAN.md](docs/UI_PLAN.md)
-- Slack integration: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#roadmap)
+- Slack integration (talking to Gabe, approvals in Slack): [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#roadmap).
+  The customer FAQ bot is done: [docs/FAQ_BOT.md](docs/FAQ_BOT.md).
 
 Every tool call is appended to `data/audit.jsonl`.
 

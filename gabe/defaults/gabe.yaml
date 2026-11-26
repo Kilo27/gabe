@@ -26,7 +26,26 @@ integrations:
     settings:
       backend: gmail
       credentials_file: gmail_client_secret.json
+  - name: calendar
+    settings:
+      backend: google      # google | local (practice: nobody is invited)
   - claude_code            # Gabe can change its own setup via Claude Code, with your OK (if installed)
+  # FAQ bot: answers customers' questions in Slack from FAQ documents you upload
+  # (Settings → FAQ bot, or drop .txt/.md/.docx/.csv/.json files in faq/). See docs/FAQ_BOT.md.
+  # Each answer is the `reply_on_slack` action: "ask" (the default for outside actions) queues
+  # it in Approvals; set policy.tools.reply_on_slack: allow to post straight away.
+  # - name: faq
+  #   settings:
+  #     folder: faq
+  #     model: haiku            # haiku | sonnet | opus
+  #     tone: Friendly and brief.
+  #     where_to_look: "Help centre: https://help.example.com"   # where to point people the FAQ can't help
+  #     slack:
+  #       enabled: true         # tokens: SLACK_BOT_TOKEN / SLACK_APP_TOKEN (the app keeps them in the keychain)
+  #       channels: []          # empty: every channel the bot has been added to
+  #       answer: everyone      # everyone | external (guests and people from other workspaces)
+  #       staff: []             # Slack member IDs that are never answered
+  #       unanswered: {notify_channel: "#support-team", create_task: true, task_owner: Support}
   # MCP servers (tools become <server>__<tool>; external unless set otherwise):
   # - name: mcp
   #   settings:

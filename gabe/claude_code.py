@@ -21,11 +21,19 @@ from pathlib import Path
 GUIDE = "CLAUDE.md"
 # Where Claude Code's installers put it. The desktop app starts with a minimal PATH.
 _EXTRA_PATH = ["~/.local/bin", "~/.claude/local", "/opt/homebrew/bin", "/usr/local/bin", "~/.npm-global/bin"]
+_EXTRA_PATH_WIN = ["~/.local/bin", "~/.claude/local", "%APPDATA%/npm"]
 
 
 def search_path() -> str:
+    if sys.platform == "win32":
+        extra = [os.path.expandvars(os.path.expanduser(p)) for p in _EXTRA_PATH_WIN]
+        return os.pathsep.join([*extra, os.environ.get("PATH", "")])
     extra = [os.path.expanduser(p) for p in _EXTRA_PATH]
     return os.pathsep.join([*extra, os.environ.get("PATH", ""), "/usr/bin", "/bin"])
+
+
+def _quote(arg: str) -> str:
+    return subprocess.list2cmdline([arg]) if sys.platform == "win32" else shlex.quote(arg)
 
 
 def find_claude(binary: str | None = None) -> str | None:
@@ -39,8 +47,8 @@ def find_claude(binary: str | None = None) -> str | None:
 def check_command(config_path: Path) -> str:
     """The shell command that runs `gabe check` on this config, from any directory."""
     if getattr(sys, "frozen", False):  # the packaged app checks its own config folder
-        return f"{shlex.quote(sys.executable)} check"
-    return f"{shlex.quote(sys.executable)} -m gabe -c {shlex.quote(str(config_path))} check"
+        return f"{_quote(sys.executable)} check"
+    return f"{_quote(sys.executable)} -m gabe -c {_quote(str(config_path))} check"
 
 
 def ensure_guide(config_path: Path) -> Path:
@@ -57,11 +65,14 @@ def ensure_guide(config_path: Path) -> Path:
 
 
 def open_in_terminal(config_path: Path, claude: str, data_dir: Path) -> None:
-    """Open a Terminal window running Claude Code in the config folder (macOS)."""
-    if sys.platform != "darwin":
-        raise RuntimeError("Opening Claude Code from Gabe works on macOS only for now.")
+    """Open a terminal window running Claude Code in the config folder."""
     folder = config_path.parent
     ensure_guide(config_path)
+    if sys.platform == "win32":
+        subprocess.Popen([claude], cwd=folder, creationflags=subprocess.CREATE_NEW_CONSOLE)
+        return
+    if sys.platform != "darwin":
+        raise RuntimeError("Opening Claude Code from Gabe works on macOS and Windows only.")
     # A .command file opens in Terminal and runs, with no automation permission needed.
     data_dir.mkdir(parents=True, exist_ok=True)
     script = data_dir / "claude-code.command"

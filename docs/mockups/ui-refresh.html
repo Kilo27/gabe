@@ -1,0 +1,870 @@
+<title>Gabe UI Refresh</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&family=Nunito+Sans:opsz,wght@6..12,400;6..12,600;6..12,700;6..12,800&family=Source+Sans+3:wght@400;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap">
+<style>
+/* Layout: a single reading column of full-width "screens", each followed by its spec strip; comparison table last. */
+:root {
+  --bg: #f4f5f7;
+  --fg: #18202b;
+  --fg-2: #56606e;
+  --line: #dde0e5;
+  --card: #ffffff;
+  --accent: #3d6ea5;
+  --tag: #e8edf4;
+  --ui: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12161c; --fg: #e8ebf0; --fg-2: #9aa3b0; --line: #2a313b; --card: #1a1f27; --accent: #8db4e2; --tag: #222a35;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12161c; --fg: #e8ebf0; --fg-2: #9aa3b0; --line: #2a313b; --card: #1a1f27; --accent: #8db4e2; --tag: #222a35;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.55 var(--ui); -webkit-font-smoothing: antialiased; }
+::selection { background: color-mix(in oklab, var(--accent) 35%, transparent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wrap { max-width: 1240px; margin: 0 auto; padding-block: 40px 80px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.top h1 { font-size: clamp(28px, 4vw, 40px); font-weight: 600; letter-spacing: -0.02em; margin: 0; text-wrap: balance; }
+.top p { color: var(--fg-2); margin: 8px 0 0; max-width: 64ch; }
+.jump { display: flex; flex-wrap: wrap; gap: 8px; margin: 24px 0 8px; padding: 0; list-style: none; }
+.jump a { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border: 1px solid var(--line); border-radius: 99px; color: var(--fg); text-decoration: none; font-weight: 500; background: var(--card); }
+.jump a:hover { border-color: var(--fg-2); }
+.jump i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+
+.dir { margin-top: 64px; scroll-margin-top: 16px; }
+.dir-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; margin-bottom: 16px; }
+.dir-head h2 { margin: 0; font-size: 24px; font-weight: 600; letter-spacing: -0.01em; }
+.dir-head .tag { font: 500 12px/1 var(--mono); padding: 6px 9px; border-radius: 6px; background: var(--tag); color: var(--fg-2); letter-spacing: 0.02em; }
+.dir-head p { flex-basis: 100%; margin: 0; color: var(--fg-2); max-width: 72ch; }
+
+.stage { width: 100%; position: relative; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); box-shadow: 0 2px 4px rgb(0 0 0 / .04), 0 16px 40px rgb(0 0 0 / .08); height: calc(760px * var(--s, .5)); }
+.frame { width: 1200px; height: 760px; transform-origin: 0 0; transform: scale(var(--s, .5)); position: absolute; top: 0; left: 0; overflow: hidden; }
+
+.spec { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin-top: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+.spec > div { padding: 16px 18px; min-width: 0; }
+.spec > div + div { border-left: 1px solid var(--line); }
+.spec h3 { margin: 0 0 8px; font: 600 12px/1.2 var(--ui); letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-2); }
+.spec ul { margin: 0; padding-left: 18px; }
+.spec li + li { margin-top: 4px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; font: 12px/1 var(--mono); color: var(--fg-2); }
+.chip i { width: 18px; height: 18px; border-radius: 5px; border: 1px solid rgb(0 0 0 / .12); display: inline-block; }
+@media (max-width: 760px) {
+  .spec { grid-template-columns: 1fr; }
+  .spec > div + div { border-left: 0; border-top: 1px solid var(--line); }
+}
+
+.cmp { margin-top: 72px; }
+.cmp h2 { font-size: 24px; font-weight: 600; margin: 0 0 16px; }
+.tbl { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+table { border-collapse: collapse; width: 100%; min-width: 760px; font-size: 14px; }
+th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+thead th { font-weight: 600; font-size: 13px; color: var(--fg-2); background: color-mix(in oklab, var(--card) 92%, var(--fg)); }
+tbody th { font-weight: 600; white-space: nowrap; }
+tr:last-child > * { border-bottom: 0; }
+.verdict { margin-top: 24px; padding: 20px 22px; border-radius: 12px; background: var(--card); border: 1px solid var(--line); max-width: 78ch; }
+.verdict h3 { margin: 0 0 6px; font-size: 16px; }
+.verdict p { margin: 0; color: var(--fg-2); }
+.verdict p + p { margin-top: 8px; }
+
+/* Shared icon sizing inside mockups */
+.frame svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+/* ======================= CURRENT ======================= */
+.cur { --today:#ffc81a; --ask:#4d8dff; --app:#ff4fa3; --tasks:#2fd36b; --inbox:#16c7e8; --notes:#a983ff; --act:#ff8a2b; --set:#b6e43a; --danger:#ff5a4e;
+  display: grid; grid-template-columns: 248px 1fr; height: 100%; font: 15px/1.5 Figtree, sans-serif; color: #141517; background: #e4e5e8; }
+.cur .rail { background: #1e1f22; color: #e9e9ec; padding: 18px 14px; display: flex; flex-direction: column; gap: 3px; }
+.cur .brand { display: flex; gap: 10px; align-items: center; padding: 4px 8px 20px; }
+.cur .bm { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; width: 30px; height: 30px; }
+.cur .bm span { border-radius: 3px; }
+.cur .bn { font-weight: 800; font-size: 19px; line-height: 1.1; }
+.cur .bc { font-size: 12.5px; color: #9c9ea6; }
+.cur .nav { display: flex; align-items: center; gap: 12px; padding: 8px 10px 8px 8px; border-radius: 11px; font-weight: 550; }
+.cur .tile { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: #111214; }
+.cur .tile svg.i { width: 17px; height: 17px; stroke-width: 2.3; }
+.cur .cnt { margin-left: auto; min-width: 24px; height: 22px; padding: 0 7px; border-radius: 99px; display: grid; place-items: center; font-size: 12.5px; font-weight: 750; color: #111214; }
+.cur .nav.on { background: var(--today); color: #111214; }
+.cur .nav.on .tile { background: rgb(0 0 0 / .14) !important; }
+.cur .sep { height: 1px; background: #2e2f33; margin: 10px 8px; }
+.cur .main { padding: 28px 36px; overflow: hidden; }
+.cur .ph { display: flex; align-items: center; gap: 14px; margin-bottom: 22px; }
+.cur .ph .tile { width: 44px; height: 44px; border-radius: 12px; background: var(--today); }
+.cur .ph .tile svg.i { width: 24px; height: 24px; }
+.cur h1 { font-size: 30px; font-weight: 800; margin: 0; line-height: 1.1; }
+.cur .sub { color: #6b6d75; font-size: 14px; }
+.cur .cols { display: grid; grid-template-columns: 1.35fr 1fr; gap: 18px; align-items: start; }
+.cur .col { display: flex; flex-direction: column; gap: 18px; }
+.cur .panel { background: #f2f2f4; border: 1px solid #cfd0d5; border-radius: 14px; overflow: hidden; box-shadow: 0 1px 2px rgb(20 21 23 / .06), 0 4px 14px rgb(20 21 23 / .06); }
+.cur .phd { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid #cfd0d5; }
+.cur .phd h2 { font-size: 16.5px; font-weight: 750; margin: 0; }
+.cur .sw { width: 14px; height: 14px; border-radius: 4px; }
+.cur .needs { list-style: none; margin: 0; padding: 6px; }
+.cur .needs li { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; }
+.cur .ni { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; color: #111214; }
+.cur .cta { margin-left: auto; display: flex; gap: 4px; align-items: center; font-weight: 650; font-size: 14px; }
+.cur .pad { padding: 16px 18px; }
+.cur .brief h3 { font-size: 15px; margin: 0 0 8px; font-weight: 750; }
+.cur .brief ul { margin: 0; padding-left: 20px; }
+.cur .brief li + li { margin-top: 6px; }
+.cur .foot { display: flex; gap: 8px; padding: 12px 18px; border-top: 1px solid #cfd0d5; align-items: center; }
+.cur .btn { display: inline-flex; align-items: center; gap: 7px; padding: 7px 13px; border-radius: 9px; border: 1px solid #b3b5bb; background: #fbfbfc; font-weight: 650; font-size: 14px; }
+.cur .btn svg.i { width: 15px; height: 15px; }
+.cur .btn.y { background: var(--today); border-color: var(--today); }
+.cur .btn.p { background: var(--app); border-color: var(--app); }
+.cur .btn.g { background: var(--tasks); border-color: var(--tasks); }
+.cur .appr { padding: 14px 18px; }
+.cur .appr .who { font-weight: 700; }
+.cur .appr .draft { margin-top: 10px; padding: 12px 14px; background: #fbfbfc; border: 1px solid #cfd0d5; border-radius: 10px; font-size: 14px; color: #4a4c53; }
+.cur .chipx { display: inline-block; padding: 2px 9px; border-radius: 99px; font-size: 12.5px; font-weight: 700; background: color-mix(in oklab, var(--app) 22%, #f2f2f4); color: #b8186a; }
+.cur .ask textarea { width: 100%; height: 66px; border: 1px solid #b3b5bb; border-radius: 10px; background: #fbfbfc; padding: 10px 12px; font: inherit; resize: none; color: #6b6d75; }
+.cur .sugg { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.cur .sugg span { font-size: 13px; padding: 5px 10px; border-radius: 99px; background: color-mix(in oklab, var(--ask) 18%, #f2f2f4); color: #1d5bd0; font-weight: 600; }
+.cur .act { list-style: none; margin: 0; padding: 8px 18px 14px; }
+.cur .act li { display: flex; gap: 10px; align-items: center; padding: 7px 0; font-size: 14px; }
+.cur .dot { width: 10px; height: 10px; border-radius: 99px; flex: none; }
+.cur .act time { margin-left: auto; color: #6b6d75; font-size: 13px; }
+
+/* ======================= A. LEDGER ======================= */
+.led { --ink:#1b2533; --ink2:#5b6676; --ink3:#8a93a0; --rule:#e4e7eb; --wash:#f6f7f9; --flag:#b4443a; --flagwash:#fbefed; --go:#1e2d40;
+  display: grid; grid-template-columns: 216px 1fr; height: 100%; background: #fff; color: var(--ink); font: 14.5px/1.5 "IBM Plex Sans", sans-serif; }
+.led .mono { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; }
+.led .idx { border-right: 1px solid var(--rule); padding: 22px 0; display: flex; flex-direction: column; }
+.led .wm { padding: 0 22px 22px; border-bottom: 1px solid var(--rule); }
+.led .wm b { display: block; font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
+.led .wm span { font-size: 12.5px; color: var(--ink2); }
+.led nav { padding: 12px 10px; display: flex; flex-direction: column; gap: 1px; }
+.led nav a { display: flex; align-items: center; gap: 11px; padding: 7px 12px; border-radius: 6px; color: var(--ink2); font-weight: 500; }
+.led nav a svg.i { width: 16px; height: 16px; stroke-width: 1.8; }
+.led nav a.on { background: var(--wash); color: var(--ink); font-weight: 600; }
+.led nav a .n { margin-left: auto; font-size: 12.5px; color: var(--ink3); }
+.led nav a .n.f { color: #fff; background: var(--flag); border-radius: 4px; padding: 1px 6px; }
+.led nav hr { border: 0; border-top: 1px solid var(--rule); margin: 8px 12px; }
+.led .who { margin-top: auto; padding: 14px 22px 0; border-top: 1px solid var(--rule); font-size: 12.5px; color: var(--ink2); }
+.led .who .mono { color: var(--ink3); }
+.led .main { padding: 24px 40px; overflow: hidden; }
+.led .bar { display: flex; align-items: flex-end; gap: 20px; padding-bottom: 16px; border-bottom: 2px solid var(--ink); }
+.led h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; margin: 0; line-height: 1; }
+.led .date { font-size: 12.5px; color: var(--ink2); }
+.led .askf { margin-left: auto; display: flex; align-items: center; gap: 10px; width: 400px; padding: 8px 12px; border: 1px solid var(--rule); border-radius: 6px; color: var(--ink3); }
+.led .askf kbd { margin-left: auto; font: 11.5px "IBM Plex Mono", monospace; border: 1px solid var(--rule); border-radius: 4px; padding: 1px 5px; color: var(--ink3); }
+.led .sh { display: flex; align-items: baseline; gap: 10px; margin: 22px 0 0; padding-bottom: 8px; border-bottom: 1px solid var(--ink); }
+.led .sh h2 { font-size: 13px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; margin: 0; }
+.led .sh .c { font-size: 12.5px; color: var(--ink2); }
+.led .sh .flagtxt { color: var(--flag); }
+.led .sh a { margin-left: auto; font-size: 13px; color: var(--ink2); }
+.led .tr { display: grid; grid-template-columns: 64px 1fr 180px 230px; gap: 16px; align-items: center; padding: 11px 0; border-bottom: 1px solid var(--rule); }
+.led .tr.th { padding: 7px 0; font-size: 12px; color: var(--ink3); }
+.led .tr .t { color: var(--ink2); font-size: 13px; }
+.led .tr .what b { font-weight: 600; }
+.led .tr .what span { display: block; color: var(--ink2); font-size: 13.5px; }
+.led .tr .meta { font-size: 13px; color: var(--ink2); }
+.led .acts { display: flex; gap: 6px; justify-content: flex-end; }
+.led .b { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 5px; border: 1px solid #cfd4da; background: #fff; font-weight: 500; font-size: 13.5px; color: var(--ink); }
+.led .b svg.i { width: 15px; height: 15px; }
+.led .b.go { background: var(--go); border-color: var(--go); color: #fff; }
+.led .tr.open { background: linear-gradient(var(--flagwash), var(--flagwash)) no-repeat 0 0 / 100% 100%; margin: 0 -14px; padding-left: 14px; padding-right: 14px; border-bottom-color: transparent; }
+.led .lbl { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--flag); }
+.led .lbl::before { content: ""; width: 7px; height: 7px; border-radius: 2px; background: var(--flag); }
+.led .draft { margin: 0 -14px; padding: 0 14px 14px 94px; background: var(--flagwash); border-bottom: 1px solid var(--rule); }
+.led .draft div { background: #fff; border: 1px solid #ecd6d2; border-radius: 6px; padding: 12px 14px; font-size: 13.5px; color: var(--ink2); max-width: 640px; }
+.led .draft div b { color: var(--ink); font-weight: 600; }
+.led .two { display: grid; grid-template-columns: 1.25fr 1fr; gap: 40px; }
+.led .brief { padding-top: 12px; max-width: 62ch; }
+.led .brief p { margin: 0 0 9px; }
+.led .brief p b { font-weight: 600; }
+.led .brief .src { font-size: 12.5px; color: var(--ink3); }
+.led .log .tr { grid-template-columns: 52px 1fr; padding: 8px 0; font-size: 13.5px; }
+.led .over { color: var(--flag); font-weight: 600; font-size: 12.5px; }
+
+/* ======================= A + GABE COLOUR (revision 2) ======================= */
+.lc { --today:#ffc81a; --ask:#4d8dff; --approvals:#ff4fa3; --tasks:#2fd36b; --inbox:#16c7e8; --notes:#a983ff; --activity:#ff8a2b; --settings:#b6e43a; --danger:#ff5a4e;
+  --today-ink:#7d5c00; --ask-ink:#1d5bd0; --approvals-ink:#b8186a; --tasks-ink:#127a38; --inbox-ink:#0a6d82; --notes-ink:#6539d0; --activity-ink:#a84b00; --settings-ink:#4b6b06; --danger-ink:#b4231a;
+  --flagwash:#fff1f8; --go:#2fd36b; }
+.lc .h-today { --h:var(--today); --hi:var(--today-ink); }
+.lc .h-ask { --h:var(--ask); --hi:var(--ask-ink); }
+.lc .h-approvals { --h:var(--approvals); --hi:var(--approvals-ink); }
+.lc .h-tasks { --h:var(--tasks); --hi:var(--tasks-ink); }
+.lc .h-inbox { --h:var(--inbox); --hi:var(--inbox-ink); }
+.lc .h-notes { --h:var(--notes); --hi:var(--notes-ink); }
+.lc .h-activity { --h:var(--activity); --hi:var(--activity-ink); }
+.lc .h-settings { --h:var(--settings); --hi:var(--settings-ink); }
+.lc .h-danger { --h:var(--danger); --hi:var(--danger-ink); }
+.lc nav a svg.i { color: var(--hi); stroke-width: 2; }
+.lc nav a.on { background: color-mix(in oklab, var(--h) 18%, #fff); }
+.lc nav a .n.f { background: var(--h); color: #111214; font-weight: 600; }
+.lc .sw { width: 10px; height: 10px; border-radius: 3px; background: var(--h); flex: none; align-self: center; }
+.lc .lbl { color: var(--hi); }
+.lc .lbl::before { background: var(--h); }
+.lc .sh .flagtxt { color: var(--approvals-ink); }
+.lc .draft div { border-color: #f5cfe2; }
+.lc .b.go { background: var(--tasks); border-color: #25b85a; color: #111214; font-weight: 600; }
+.lc .log .tr { grid-template-columns: 52px 10px 1fr; }
+.lc .dt { width: 8px; height: 8px; border-radius: 99px; background: var(--h); align-self: center; }
+.lc .who .sw { display: inline-block; margin-right: 6px; vertical-align: 1px; }
+.lc .who { display: block; }
+/* Bold variant: filled tiles, hue rules under section heads */
+.lb nav a { padding: 6px 10px; }
+.lb nav a .tl { width: 26px; height: 26px; border-radius: 7px; background: var(--h); color: #111214; display: grid; place-items: center; flex: none; }
+.lb nav a .tl svg.i { color: #111214; width: 15px; height: 15px; stroke-width: 2.2; }
+.lb nav a.on { background: var(--h); color: #111214; }
+.lb nav a.on .tl { background: rgb(0 0 0 / .12); }
+.lb nav a.on .n { color: #111214; }
+.lb .sh { border-bottom: 2px solid var(--h); }
+.lb .sh .sw { display: none; }
+.lb .sh .cnt { font: 600 12px/1 "IBM Plex Mono", monospace; padding: 3px 7px; border-radius: 99px; background: var(--h); color: #111214; }
+.lb .bar { align-items: center; }
+.lb .ptile { width: 46px; height: 46px; border-radius: 12px; background: var(--today); display: grid; place-items: center; color: #111214; }
+.lb .ptile svg.i { width: 24px; height: 24px; }
+.lb .tr .ic { width: 28px; height: 28px; border-radius: 7px; background: var(--h); color: #111214; display: grid; place-items: center; }
+.lb .tr .ic svg.i { width: 15px; height: 15px; stroke-width: 2.2; }
+.lb .tr.nd { grid-template-columns: 64px 28px 1fr 180px 230px; }
+.lb .tr.th.nd span:nth-child(2) { visibility: hidden; }
+.lb .draft { padding-left: 138px; }
+.rev { display: inline-block; font: 600 12px/1 var(--mono); letter-spacing: .04em; padding: 6px 9px; border-radius: 6px; background: var(--accent); color: var(--bg); margin-bottom: 10px; }
+
+/* ======================= B. DOGPATCH HOUSE ======================= */
+.dp { --ox:#1e2d40; --blue:#3d6ea5; --maya:#6ca3e6; --red:#b8483d; --green:#2e7d50; --raven:#5b6878; --bg:#f4f6f9; --line:#e2e7ee;
+  display: grid; grid-template-columns: 236px 1fr; height: 100%; background: var(--bg); color: var(--ox); font: 15px/1.5 "Nunito Sans", "Avenir Next", Avenir, sans-serif; }
+.dp .rail { background: var(--ox); color: #dfe6ef; padding: 24px 16px; display: flex; flex-direction: column; gap: 2px; }
+.dp .logo { padding: 0 10px 26px; display: flex; align-items: baseline; gap: 8px; }
+.dp .logo b { font-size: 24px; font-weight: 800; color: #fff; letter-spacing: -0.02em; }
+.dp .logo span { font-size: 11.5px; letter-spacing: 0.14em; text-transform: uppercase; color: #93a3b8; font-weight: 700; }
+.dp .nav { display: flex; align-items: center; gap: 12px; padding: 9px 12px; border-radius: 8px; font-weight: 600; color: #c4cfdc; }
+.dp .nav svg.i { width: 18px; height: 18px; stroke-width: 1.9; color: #8ea2bb; }
+.dp .nav.on { background: #2c3f57; color: #fff; }
+.dp .nav.on svg.i { color: var(--maya); }
+.dp .nav .n { margin-left: auto; font-size: 12px; font-weight: 800; min-width: 22px; height: 20px; border-radius: 99px; display: grid; place-items: center; padding: 0 6px; background: #cb5549; color: #fff; }
+.dp .nav .n.q { background: #33465e; color: #c4cfdc; }
+.dp .sep { height: 1px; background: #2c3f57; margin: 12px 10px; }
+.dp .me { margin-top: auto; display: flex; align-items: center; gap: 10px; padding: 12px 10px 0; border-top: 1px solid #2c3f57; font-size: 13.5px; }
+.dp .av { width: 30px; height: 30px; border-radius: 99px; background: var(--maya); color: var(--ox); display: grid; place-items: center; font-weight: 800; font-size: 13px; }
+.dp .main { overflow: hidden; }
+.dp .hero { background: var(--ox); background-image: linear-gradient(100deg, #1e2d40 0%, #24395a 60%, #2d4a72 100%); color: #fff; padding: 26px 36px 72px; display: flex; align-items: flex-end; gap: 20px; }
+.dp .hero h1 { font-size: 32px; font-weight: 700; margin: 0; letter-spacing: -0.015em; line-height: 1.1; }
+.dp .hero .d { color: #a9bbd1; font-size: 14.5px; margin-top: 4px; }
+.dp .askb { margin-left: auto; width: 420px; display: flex; align-items: center; gap: 10px; background: #fff; color: #7b8797; border-radius: 10px; padding: 11px 14px; box-shadow: 0 6px 18px rgb(0 0 0 / .18); }
+.dp .askb .send { margin-left: auto; width: 30px; height: 30px; border-radius: 8px; background: var(--blue); color: #fff; display: grid; place-items: center; }
+.dp .askb .send svg.i { width: 15px; height: 15px; }
+.dp .body { margin-top: -50px; padding: 0 36px; display: grid; grid-template-columns: 1.3fr 1fr; gap: 20px; align-items: start; }
+.dp .col { display: flex; flex-direction: column; gap: 20px; }
+.dp .card { background: #fff; border-radius: 12px; box-shadow: 0 1px 2px rgb(30 45 64 / .06), 0 8px 24px rgb(30 45 64 / .07); overflow: hidden; }
+.dp .ch { display: flex; align-items: center; gap: 10px; padding: 16px 20px 6px; }
+.dp .ch h2 { margin: 0; font-size: 17px; font-weight: 800; }
+.dp .ch .pill { font-size: 12px; font-weight: 800; padding: 2px 9px; border-radius: 99px; background: #f9e7e5; color: var(--red); }
+.dp .ch a { margin-left: auto; font-size: 13.5px; color: var(--blue); font-weight: 700; }
+.dp .row { display: flex; align-items: center; gap: 14px; padding: 12px 20px; border-top: 1px solid var(--line); }
+.dp .row:first-of-type { border-top: 0; }
+.dp .ic { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; }
+.dp .ic.r { background: #f9e7e5; color: var(--red); }
+.dp .ic.b { background: #e6eef8; color: var(--blue); }
+.dp .ic.g { background: #e3f2ea; color: var(--green); }
+.dp .row .tx b { font-weight: 700; display: block; }
+.dp .row .tx span { color: var(--raven); font-size: 13.5px; }
+.dp .row .go { margin-left: auto; display: flex; gap: 8px; }
+.dp .btn { display: inline-flex; align-items: center; gap: 7px; padding: 7px 14px; border-radius: 8px; font-weight: 700; font-size: 14px; border: 1px solid #cfd8e3; background: #fff; color: var(--ox); }
+.dp .btn svg.i { width: 15px; height: 15px; }
+.dp .btn.g { background: var(--green); border-color: var(--green); color: #fff; }
+.dp .btn.bl { background: var(--blue); border-color: var(--blue); color: #fff; }
+.dp .draft { margin: 0 20px 16px 70px; padding: 12px 14px; border-radius: 10px; background: var(--bg); font-size: 14px; color: var(--raven); }
+.dp .draft b { color: var(--ox); }
+.dp .brief { padding: 6px 20px 18px; }
+.dp .brief ul { margin: 0; padding-left: 18px; }
+.dp .brief li { margin-top: 7px; }
+.dp .brief li::marker { color: var(--maya); }
+.dp .cf { display: flex; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--line); align-items: center; }
+.dp .cf .nx { margin-left: auto; color: var(--raven); font-size: 13px; }
+.dp .tl { list-style: none; margin: 0; padding: 8px 20px 16px; }
+.dp .tl li { display: grid; grid-template-columns: 44px 1fr; gap: 10px; padding: 7px 0; font-size: 14px; }
+.dp .tl time { color: var(--raven); font-size: 13px; font-variant-numeric: tabular-nums; }
+.dp .stats { display: grid; grid-template-columns: repeat(3, 1fr); }
+.dp .stats div { padding: 16px 20px; }
+.dp .stats div + div { border-left: 1px solid var(--line); }
+.dp .stats b { display: block; font-size: 26px; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.dp .stats span { color: var(--raven); font-size: 13px; }
+
+/* ======================= C. BRIEFING PAPER ======================= */
+.bp { --ink:#16202c; --ink2:#535e6b; --ink3:#86909c; --rule:#e3e6ea; --blue:#2f5f94; --flag:#b4443a; --soft:#f5f7fa;
+  height: 100%; background: #fff; color: var(--ink); font: 15px/1.55 "Source Sans 3", sans-serif; display: flex; flex-direction: column; }
+.bp .top { display: flex; align-items: center; gap: 28px; padding: 0 40px; height: 60px; border-bottom: 1px solid var(--rule); flex: none; }
+.bp .wm { font: 700 21px/1 "Source Serif 4", Georgia, serif; letter-spacing: -0.01em; }
+.bp .wm small { font: 600 12px "Source Sans 3", sans-serif; color: var(--ink3); margin-left: 8px; letter-spacing: 0.02em; }
+.bp .tabs { display: flex; gap: 2px; height: 100%; }
+.bp .tabs a { display: flex; align-items: center; gap: 7px; padding: 0 12px; color: var(--ink2); font-weight: 600; font-size: 14.5px; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.bp .tabs a.on { color: var(--ink); border-bottom-color: var(--ink); }
+.bp .tabs .n { font-size: 12px; font-weight: 700; color: #fff; background: var(--flag); border-radius: 99px; padding: 0 7px; line-height: 18px; }
+.bp .srch { margin-left: auto; display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 99px; background: var(--soft); color: var(--ink3); width: 260px; font-size: 14px; }
+.bp .srch svg.i { width: 16px; height: 16px; }
+.bp .page { display: grid; grid-template-columns: 1fr 360px; flex: 1; min-height: 0; }
+.bp .doc { padding: 40px 56px 0 96px; overflow: hidden; }
+.bp .kick { font-size: 13px; color: var(--ink3); font-weight: 600; }
+.bp h1 { font: 600 40px/1.1 "Source Serif 4", Georgia, serif; letter-spacing: -0.02em; margin: 6px 0 18px; }
+.bp .lede { font: 400 19px/1.55 "Source Serif 4", Georgia, serif; color: #2a3442; max-width: 60ch; margin: 0 0 22px; }
+.bp .doc h2 { font: 600 13px "Source Sans 3", sans-serif; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink2); margin: 0 0 6px; padding-top: 14px; border-top: 1px solid var(--rule); max-width: 62ch; }
+.bp .doc ul { margin: 0 0 18px; padding-left: 20px; max-width: 60ch; font: 17px/1.6 "Source Serif 4", Georgia, serif; }
+.bp .doc li + li { margin-top: 4px; }
+.bp .doc a { color: var(--blue); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+.bp .tools { display: flex; gap: 8px; margin-top: 4px; }
+.bp .btn { display: inline-flex; align-items: center; gap: 7px; padding: 7px 14px; border-radius: 99px; border: 1px solid #cdd3da; background: #fff; font-weight: 600; font-size: 14px; color: var(--ink); }
+.bp .btn svg.i { width: 15px; height: 15px; }
+.bp .btn.ink { background: var(--ink); border-color: var(--ink); color: #fff; }
+.bp .side { background: var(--soft); border-left: 1px solid var(--rule); padding: 28px 28px; overflow: hidden; display: flex; flex-direction: column; gap: 22px; }
+.bp .side h3 { margin: 0 0 10px; font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink2); display: flex; align-items: center; gap: 8px; }
+.bp .side h3 .n { color: var(--flag); }
+.bp .q { background: #fff; border: 1px solid var(--rule); border-radius: 10px; padding: 14px 16px; }
+.bp .q + .q { margin-top: 10px; }
+.bp .q .l { font-size: 12.5px; font-weight: 700; color: var(--flag); display: flex; align-items: center; gap: 6px; }
+.bp .q .l svg.i { width: 14px; height: 14px; }
+.bp .q b { display: block; margin-top: 4px; font-weight: 700; }
+.bp .q p { margin: 6px 0 12px; font: 14.5px/1.5 "Source Serif 4", Georgia, serif; color: var(--ink2); }
+.bp .q .acts { display: flex; gap: 6px; }
+.bp .q.s b { margin-top: 0; }
+.bp .q.s p { margin-bottom: 0; }
+.bp .lst { list-style: none; margin: 0; padding: 0; font-size: 14px; }
+.bp .lst li { display: flex; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--rule); }
+.bp .lst time { color: var(--ink3); width: 40px; flex: none; font-variant-numeric: tabular-nums; }
+.bp .lst .tg { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--flag); }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
+    <symbol id="i-mail" viewBox="0 0 24 24"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-tasks" viewBox="0 0 24 24"><path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></symbol>
+    <symbol id="i-inbox" viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
+    <symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/></symbol>
+    <symbol id="i-notes" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8M16 17H8M10 9H8"/></symbol>
+    <symbol id="i-agents" viewBox="0 0 24 24"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></symbol>
+    <symbol id="i-today" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="m9 16 2 2 4-4"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4M12 17h.01"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></symbol>
+    <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <header class="top">
+    <h1>Gabe UI refresh</h1>
+    <p>Revision 2: Ledger with Gabe's area colours, light and bold. The first round follows below: the current screen and three directions drawn from the Dogpatch Labs palette. Same content in every frame. Sample data.</p>
+    <ul class="jump">
+      <li><a href="#colour-quiet"><i style="background:linear-gradient(90deg,#1b2533 0 60%,#ffc81a 0 70%,#ff4fa3 0 80%,#2fd36b 0 90%,#16c7e8 0)"></i>A1 · Ledger, colour-coded</a></li>
+      <li><a href="#colour-bold"><i style="background:linear-gradient(90deg,#ffc81a 0 25%,#ff4fa3 0 50%,#2fd36b 0 75%,#16c7e8 0)"></i>A2 · Ledger, colour tiles</a></li>
+      <li><a href="#current"><i style="background:linear-gradient(90deg,#ffc81a 0 25%,#ff4fa3 0 50%,#2fd36b 0 75%,#4d8dff 0)"></i>Current</a></li>
+      <li><a href="#ledger"><i style="background:#1b2533"></i>A · Ledger</a></li>
+      <li><a href="#house"><i style="background:#1e2d40;box-shadow:inset -5px 0 #6ca3e6"></i>B · Dogpatch</a></li>
+      <li><a href="#paper"><i style="background:#fff;border:1px solid #16202c"></i>C · Briefing paper</a></li>
+      <li><a href="#compare"><i style="background:var(--fg-2)"></i>Compare</a></li>
+    </ul>
+  </header>
+
+  <!-- ============ A1. LEDGER, COLOUR-CODED ============ -->
+  <section class="dir" id="colour-quiet">
+    <span class="rev">REVISION 2</span>
+    <div class="dir-head">
+      <h2>A1 · Ledger, colour-coded</h2><span class="tag">IBM Plex · Gabe's 9 hues as accents</span>
+      <p>Ledger's white page and rules, with each area's colour back on its icon, section swatch, row label and log dot. Colour marks what kind of thing each row is; the page around it stays quiet.</p>
+    </div>
+    <div class="stage"><div class="frame">
+      <div class="led lc">
+        <aside class="idx">
+          <div class="wm"><b>Gabe</b><span>Dogpatch Labs</span></div>
+          <nav>
+            <a class="h-ask"><svg class="i"><use href="#i-agents"/></svg>Agents</a>
+            <a class="on h-today"><svg class="i"><use href="#i-today"/></svg>Today</a>
+            <a class="h-approvals"><svg class="i"><use href="#i-shield"/></svg>Approvals<span class="n f mono">2</span></a>
+            <a class="h-tasks"><svg class="i"><use href="#i-tasks"/></svg>Tasks<span class="n mono">12</span></a>
+            <a class="h-inbox"><svg class="i"><use href="#i-inbox"/></svg>Inbox<span class="n mono">14</span></a>
+            <a class="h-notes"><svg class="i"><use href="#i-notes"/></svg>Notes</a>
+            <hr>
+            <a class="h-activity"><svg class="i"><use href="#i-activity"/></svg>Activity</a>
+            <a class="h-settings"><svg class="i"><use href="#i-settings"/></svg>Settings</a>
+          </nav>
+          <div class="who h-today"><span class="sw"></span>Next brief<br><span class="mono">Fri 27 Nov · 08:00</span></div>
+        </aside>
+        <main class="main">
+          <div class="bar">
+            <div><div class="date mono">THU 26 NOV 2026</div><h1 style="margin-top:6px">Today</h1></div>
+            <div class="askf h-ask"><svg class="i" style="width:16px;height:16px;color:var(--ask-ink)"><use href="#i-search"/></svg>Ask Gabe<kbd>⌘K</kbd></div>
+          </div>
+
+          <div class="sh h-approvals"><span class="sw"></span><h2>Needs you</h2><span class="c mono flagtxt">2 waiting · 1 overdue</span><a>Approvals →</a></div>
+          <div class="tr th mono"><span>TIME</span><span>ITEM</span><span>FROM</span><span style="text-align:right">ACTION</span></div>
+          <div class="tr open">
+            <span class="t mono">09:12</span>
+            <div class="what h-inbox"><span class="lbl">Send email</span><b>Re: Hot desk for January</b></div>
+            <span class="meta">To Aoife Brennan<br>Inbox agent</span>
+            <div class="acts"><span class="b go"><svg class="i"><use href="#i-check"/></svg>Approve</span><span class="b">Edit</span><span class="b">Decline</span></div>
+          </div>
+          <div class="draft"><div><b>Hi Aoife,</b> your hot desk is renewed from 1 January at the same rate. Your new fob will be at reception from Monday. Shout if anything changes.</div></div>
+          <div class="tr">
+            <span class="t mono">08:51</span>
+            <div class="what h-today"><span class="lbl">Add to calendar</span><b>Demo day dry run, Tue 1 Dec 14:00</b></div>
+            <span class="meta">Ground floor events<br>Gabe</span>
+            <div class="acts"><span class="b go"><svg class="i"><use href="#i-check"/></svg>Approve</span><span class="b">Decline</span></div>
+          </div>
+          <div class="tr">
+            <span class="t mono">Tue</span>
+            <div class="what h-danger"><span class="lbl">Overdue</span><b>Confirm catering numbers for demo day</b></div>
+            <span class="meta">Due Tue 24 Nov<br>You</span>
+            <div class="acts"><span class="b">Open task</span></div>
+          </div>
+
+          <div class="two">
+            <div>
+              <div class="sh h-today"><span class="sw"></span><h2>Daily brief</h2><span class="c mono">08:02</span><a>Email it</a></div>
+              <div class="brief">
+                <p><b>Founders' breakfast, 09:00–10:00</b>, ground floor. 24 signed up.</p>
+                <p>Three hot-desk renewals land this week. One reply is drafted and waiting above.</p>
+                <p><b>Coming up:</b> the December demo day room booking closes Friday.</p>
+                <p class="src">From tasks, yesterday's email and saved notes.</p>
+              </div>
+            </div>
+            <div class="log">
+              <div class="sh h-activity"><span class="sw"></span><h2>Log</h2><a>All activity →</a></div>
+              <div class="tr h-inbox"><span class="t mono">09:12</span><span class="dt"></span><span>Drafted a reply to Aoife Brennan</span></div>
+              <div class="tr h-today"><span class="t mono">08:51</span><span class="dt"></span><span>Proposed a calendar invite</span></div>
+              <div class="tr h-tasks"><span class="t mono">08:40</span><span class="dt"></span><span>Added task “Book demo day room”</span></div>
+              <div class="tr h-today"><span class="t mono">08:02</span><span class="dt"></span><span>Wrote the daily brief</span></div>
+              <div class="tr h-inbox"><span class="t mono">07:55</span><span class="dt"></span><span>Read 14 new emails</span></div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div></div>
+    <div class="spec">
+      <div><h3>Type</h3><ul><li>Unchanged from A: Plex Sans, Plex Mono for times and counts</li><li>Section heads keep the 1px ink rule, plus a hue swatch</li></ul></div>
+      <div><h3>Colour</h3><div class="chips"><span class="chip"><i style="background:#1b2533"></i>ink</span><span class="chip"><i style="background:#ffc81a"></i>today</span><span class="chip"><i style="background:#ff4fa3"></i>approvals</span><span class="chip"><i style="background:#2fd36b"></i>tasks</span><span class="chip"><i style="background:#16c7e8"></i>inbox</span><span class="chip"><i style="background:#ff8a2b"></i>activity</span><span class="chip"><i style="background:#ff5a4e"></i>danger</span></div></div>
+      <div><h3>What changes</h3><ul><li>Same hue map as today, at about a tenth of the area</li><li>Text uses the darker “-ink” shades, so it passes AA on white</li><li>Approve goes back to Gabe green</li></ul></div>
+    </div>
+  </section>
+
+  <!-- ============ A2. LEDGER, COLOUR TILES ============ -->
+  <section class="dir" id="colour-bold">
+    <span class="rev">REVISION 2</span>
+    <div class="dir-head">
+      <h2>A2 · Ledger, colour tiles</h2><span class="tag">IBM Plex · filled hue tiles</span>
+      <p>Louder: the nav keeps Gabe's filled tiles, the active page fills with its hue, each section is underlined in its colour, and every row needing you carries a coloured tile. Closest to the current app's personality on the Ledger layout.</p>
+    </div>
+    <div class="stage"><div class="frame">
+      <div class="led lc lb">
+        <aside class="idx">
+          <div class="wm"><b>Gabe</b><span>Dogpatch Labs</span></div>
+          <nav>
+            <a class="h-ask"><span class="tl"><svg class="i"><use href="#i-agents"/></svg></span>Agents</a>
+            <a class="on h-today"><span class="tl"><svg class="i"><use href="#i-today"/></svg></span>Today</a>
+            <a class="h-approvals"><span class="tl"><svg class="i"><use href="#i-shield"/></svg></span>Approvals<span class="n f mono">2</span></a>
+            <a class="h-tasks"><span class="tl"><svg class="i"><use href="#i-tasks"/></svg></span>Tasks<span class="n mono">12</span></a>
+            <a class="h-inbox"><span class="tl"><svg class="i"><use href="#i-inbox"/></svg></span>Inbox<span class="n mono">14</span></a>
+            <a class="h-notes"><span class="tl"><svg class="i"><use href="#i-notes"/></svg></span>Notes</a>
+            <hr>
+            <a class="h-activity"><span class="tl"><svg class="i"><use href="#i-activity"/></svg></span>Activity</a>
+            <a class="h-settings"><span class="tl"><svg class="i"><use href="#i-settings"/></svg></span>Settings</a>
+          </nav>
+          <div class="who h-today"><span class="sw"></span>Next brief<br><span class="mono">Fri 27 Nov · 08:00</span></div>
+        </aside>
+        <main class="main">
+          <div class="bar">
+            <span class="ptile"><svg class="i"><use href="#i-today"/></svg></span>
+            <div><div class="date mono">THU 26 NOV 2026</div><h1 style="margin-top:6px">Today</h1></div>
+            <div class="askf"><svg class="i" style="width:16px;height:16px;color:var(--ask-ink)"><use href="#i-search"/></svg>Ask Gabe<kbd>⌘K</kbd></div>
+          </div>
+
+          <div class="sh h-approvals"><h2>Needs you</h2><span class="cnt">3</span><span class="c mono flagtxt">2 waiting · 1 overdue</span><a>Approvals →</a></div>
+          <div class="tr th nd mono"><span>TIME</span><span></span><span>ITEM</span><span>FROM</span><span style="text-align:right">ACTION</span></div>
+          <div class="tr open nd">
+            <span class="t mono">09:12</span>
+            <span class="ic h-inbox"><svg class="i"><use href="#i-mail"/></svg></span>
+            <div class="what h-inbox"><span class="lbl">Send email</span><b>Re: Hot desk for January</b></div>
+            <span class="meta">To Aoife Brennan<br>Inbox agent</span>
+            <div class="acts"><span class="b go"><svg class="i"><use href="#i-check"/></svg>Approve</span><span class="b">Edit</span><span class="b">Decline</span></div>
+          </div>
+          <div class="draft"><div><b>Hi Aoife,</b> your hot desk is renewed from 1 January at the same rate. Your new fob will be at reception from Monday. Shout if anything changes.</div></div>
+          <div class="tr nd">
+            <span class="t mono">08:51</span>
+            <span class="ic h-today"><svg class="i"><use href="#i-today"/></svg></span>
+            <div class="what h-today"><span class="lbl">Add to calendar</span><b>Demo day dry run, Tue 1 Dec 14:00</b></div>
+            <span class="meta">Ground floor events<br>Gabe</span>
+            <div class="acts"><span class="b go"><svg class="i"><use href="#i-check"/></svg>Approve</span><span class="b">Decline</span></div>
+          </div>
+          <div class="tr nd">
+            <span class="t mono">Tue</span>
+            <span class="ic h-danger"><svg class="i"><use href="#i-alert"/></svg></span>
+            <div class="what h-danger"><span class="lbl">Overdue</span><b>Confirm catering numbers for demo day</b></div>
+            <span class="meta">Due Tue 24 Nov<br>You</span>
+            <div class="acts"><span class="b">Open task</span></div>
+          </div>
+
+          <div class="two">
+            <div>
+              <div class="sh h-today"><h2>Daily brief</h2><span class="c mono">08:02</span><a>Email it</a></div>
+              <div class="brief">
+                <p><b>Founders' breakfast, 09:00–10:00</b>, ground floor. 24 signed up.</p>
+                <p>Three hot-desk renewals land this week. One reply is drafted and waiting above.</p>
+                <p><b>Coming up:</b> the December demo day room booking closes Friday.</p>
+                <p class="src">From tasks, yesterday's email and saved notes.</p>
+              </div>
+            </div>
+            <div class="log">
+              <div class="sh h-activity"><h2>Log</h2><a>All activity →</a></div>
+              <div class="tr h-inbox"><span class="t mono">09:12</span><span class="dt"></span><span>Drafted a reply to Aoife Brennan</span></div>
+              <div class="tr h-today"><span class="t mono">08:51</span><span class="dt"></span><span>Proposed a calendar invite</span></div>
+              <div class="tr h-tasks"><span class="t mono">08:40</span><span class="dt"></span><span>Added task “Book demo day room”</span></div>
+              <div class="tr h-today"><span class="t mono">08:02</span><span class="dt"></span><span>Wrote the daily brief</span></div>
+              <div class="tr h-inbox"><span class="t mono">07:55</span><span class="dt"></span><span>Read 14 new emails</span></div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div></div>
+    <div class="spec">
+      <div><h3>Type</h3><ul><li>Unchanged from A</li><li>Page title gets its area tile, as in the current app</li></ul></div>
+      <div><h3>Colour</h3><div class="chips"><span class="chip"><i style="background:#ffc81a"></i>today</span><span class="chip"><i style="background:#4d8dff"></i>ask</span><span class="chip"><i style="background:#ff4fa3"></i>approvals</span><span class="chip"><i style="background:#2fd36b"></i>tasks</span><span class="chip"><i style="background:#16c7e8"></i>inbox</span><span class="chip"><i style="background:#a983ff"></i>notes</span><span class="chip"><i style="background:#ff8a2b"></i>activity</span><span class="chip"><i style="background:#b6e43a"></i>settings</span></div></div>
+      <div><h3>What changes</h3><ul><li>Light nav replaces the dark rail</li><li>Panels become ruled rows, so fills sit on white, not grey</li><li>Busier than A1; easiest step from today</li></ul></div>
+    </div>
+  </section>
+
+  <!-- ============ CURRENT ============ -->
+  <section class="dir" id="current">
+    <div class="dir-head">
+      <h2>Current</h2><span class="tag">Figtree · 9 hues</span>
+      <p>Every area owns a bright hue. Nine fills compete on one screen, so the two things that need a person don't stand out from the furniture.</p>
+    </div>
+    <div class="stage"><div class="frame">
+      <div class="cur">
+        <aside class="rail">
+          <div class="brand"><div class="bm"><span style="background:#ffc81a"></span><span style="background:#ff4fa3"></span><span style="background:#2fd36b"></span><span style="background:#4d8dff"></span></div><div><div class="bn">Gabe</div><div class="bc">Dogpatch Labs</div></div></div>
+          <div class="nav"><span class="tile" style="background:var(--ask)"><svg class="i"><use href="#i-agents"/></svg></span>Agents</div>
+          <div class="nav on"><span class="tile"><svg class="i"><use href="#i-today"/></svg></span>Today</div>
+          <div class="nav"><span class="tile" style="background:var(--app)"><svg class="i"><use href="#i-shield"/></svg></span>Approvals<span class="cnt" style="background:var(--app)">2</span></div>
+          <div class="nav"><span class="tile" style="background:var(--tasks)"><svg class="i"><use href="#i-tasks"/></svg></span>Tasks<span class="cnt" style="background:var(--tasks)">1</span></div>
+          <div class="nav"><span class="tile" style="background:var(--inbox)"><svg class="i"><use href="#i-inbox"/></svg></span>Inbox</div>
+          <div class="nav"><span class="tile" style="background:var(--notes)"><svg class="i"><use href="#i-notes"/></svg></span>Notes</div>
+          <div class="sep"></div>
+          <div class="nav"><span class="tile" style="background:var(--act)"><svg class="i"><use href="#i-activity"/></svg></span>Activity</div>
+          <div class="nav"><span class="tile" style="background:var(--set)"><svg class="i"><use href="#i-settings"/></svg></span>Settings</div>
+        </aside>
+        <main class="main">
+          <div class="ph"><span class="tile"><svg class="i"><use href="#i-today"/></svg></span><div><h1>Good morning</h1><div class="sub">Thursday 26 November</div></div></div>
+          <div class="cols">
+            <div class="col">
+              <section class="panel">
+                <div class="phd"><span class="sw" style="background:var(--app)"></span><h2>Needs you</h2></div>
+                <ul class="needs">
+                  <li><span class="ni" style="background:var(--app)"><svg class="i"><use href="#i-shield"/></svg></span>2 things are waiting for your OK<span class="cta" style="color:#b8186a">Review <svg class="i"><use href="#i-arrow"/></svg></span></li>
+                  <li><span class="ni" style="background:var(--danger)"><svg class="i"><use href="#i-alert"/></svg></span>1 task is overdue<span class="cta" style="color:#b4231a">See them <svg class="i"><use href="#i-arrow"/></svg></span></li>
+                  <li><span class="ni" style="background:var(--tasks)"><svg class="i"><use href="#i-clock"/></svg></span>3 tasks due today<span class="cta" style="color:#127a38">See them <svg class="i"><use href="#i-arrow"/></svg></span></li>
+                </ul>
+              </section>
+              <section class="panel">
+                <div class="phd"><span class="sw" style="background:var(--today)"></span><h2>Daily brief</h2></div>
+                <div class="pad brief">
+                  <h3>Today at a glance</h3>
+                  <ul>
+                    <li><b>Founders' breakfast, 09:00–10:00</b>, ground floor. 24 signed up.</li>
+                    <li>Three hot-desk renewals land this week. One reply is drafted for your OK.</li>
+                    <li><b>Coming up:</b> December demo day room booking closes Friday.</li>
+                  </ul>
+                </div>
+                <div class="foot"><span class="btn y"><svg class="i"><use href="#i-refresh"/></svg>Write a fresh brief</span><span class="btn"><svg class="i"><use href="#i-mail"/></svg>Email this brief</span></div>
+              </section>
+            </div>
+            <div class="col">
+              <section class="panel">
+                <div class="phd"><span class="sw" style="background:var(--app)"></span><h2>Waiting for your OK</h2></div>
+                <div class="appr">
+                  <span class="chipx">Send email</span>
+                  <div class="who" style="margin-top:8px">To Aoife Brennan · Re: Hot desk for January</div>
+                  <div class="draft">Hi Aoife, your hot desk is renewed from 1 January at the same rate. Your new fob will be at reception…</div>
+                  <div style="display:flex;gap:8px;margin-top:12px"><span class="btn g"><svg class="i"><use href="#i-check"/></svg>Approve</span><span class="btn"><svg class="i"><use href="#i-pencil"/></svg>Edit</span><span class="btn"><svg class="i"><use href="#i-x"/></svg>Decline</span></div>
+                </div>
+              </section>
+              <section class="panel">
+                <div class="phd"><span class="sw" style="background:var(--act)"></span><h2>Recent</h2></div>
+                <ul class="act">
+                  <li><span class="dot" style="background:var(--inbox)"></span>Drafted a reply to Aoife Brennan<time>09:12</time></li>
+                  <li><span class="dot" style="background:var(--tasks)"></span>Added “Book demo day room”<time>08:40</time></li>
+                  <li><span class="dot" style="background:var(--today)"></span>Wrote the daily brief<time>08:02</time></li>
+                  <li><span class="dot" style="background:var(--inbox)"></span>Read 14 new emails<time>07:55</time></li>
+                </ul>
+              </section>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- ============ A. LEDGER ============ -->
+  <section class="dir" id="ledger">
+    <div class="dir-head">
+      <h2>A · Ledger</h2><span class="tag">IBM Plex · ink + one signal colour</span>
+      <p>An operations log. White ground, hairline rules, times in a fixed column. Colour is reserved for one job: anything waiting for a person is red, labelled, and nothing else on screen is coloured.</p>
+    </div>
+    <div class="stage"><div class="frame">
+      <div class="led">
+        <aside class="idx">
+          <div class="wm"><b>Gabe</b><span>Dogpatch Labs</span></div>
+          <nav>
+            <a><svg class="i"><use href="#i-agents"/></svg>Agents</a>
+            <a class="on"><svg class="i"><use href="#i-today"/></svg>Today</a>
+            <a><svg class="i"><use href="#i-shield"/></svg>Approvals<span class="n f mono">2</span></a>
+            <a><svg class="i"><use href="#i-tasks"/></svg>Tasks<span class="n mono">12</span></a>
+            <a><svg class="i"><use href="#i-inbox"/></svg>Inbox<span class="n mono">14</span></a>
+            <a><svg class="i"><use href="#i-notes"/></svg>Notes</a>
+            <hr>
+            <a><svg class="i"><use href="#i-activity"/></svg>Activity</a>
+            <a><svg class="i"><use href="#i-settings"/></svg>Settings</a>
+          </nav>
+          <div class="who">Next brief<br><span class="mono">Fri 27 Nov · 08:00</span></div>
+        </aside>
+        <main class="main">
+          <div class="bar">
+            <div><div class="date mono">THU 26 NOV 2026</div><h1 style="margin-top:6px">Today</h1></div>
+            <div class="askf"><svg class="i" style="width:16px;height:16px"><use href="#i-search"/></svg>Ask Gabe<kbd>⌘K</kbd></div>
+          </div>
+
+          <div class="sh"><h2>Needs you</h2><span class="c mono flagtxt">2 waiting · 1 overdue</span><a>Approvals →</a></div>
+          <div class="tr th mono"><span>TIME</span><span>ITEM</span><span>FROM</span><span style="text-align:right">ACTION</span></div>
+          <div class="tr open">
+            <span class="t mono">09:12</span>
+            <div class="what"><span class="lbl">Send email</span><b>Re: Hot desk for January</b></div>
+            <span class="meta">To Aoife Brennan<br>Inbox agent</span>
+            <div class="acts"><span class="b go"><svg class="i"><use href="#i-check"/></svg>Approve</span><span class="b">Edit</span><span class="b">Decline</span></div>
+          </div>
+          <div class="draft"><div><b>Hi Aoife,</b> your hot desk is renewed from 1 January at the same rate. Your new fob will be at reception from Monday. Shout if anything changes.</div></div>
+          <div class="tr">
+            <span class="t mono">08:51</span>
+            <div class="what"><span class="lbl">Add to calendar</span><b>Demo day dry run, Tue 1 Dec 14:00</b></div>
+            <span class="meta">Ground floor events<br>Gabe</span>
+            <div class="acts"><span class="b go"><svg class="i"><use href="#i-check"/></svg>Approve</span><span class="b">Decline</span></div>
+          </div>
+          <div class="tr">
+            <span class="t mono">Tue</span>
+            <div class="what"><span class="lbl">Overdue</span><b>Confirm catering numbers for demo day</b></div>
+            <span class="meta">Due Tue 24 Nov<br>You</span>
+            <div class="acts"><span class="b">Open task</span></div>
+          </div>
+
+          <div class="two">
+            <div>
+              <div class="sh"><h2>Daily brief</h2><span class="c mono">08:02</span><a>Email it</a></div>
+              <div class="brief">
+                <p><b>Founders' breakfast, 09:00–10:00</b>, ground floor. 24 signed up.</p>
+                <p>Three hot-desk renewals land this week. One reply is drafted and waiting above.</p>
+                <p><b>Coming up:</b> the December demo day room booking closes Friday.</p>
+                <p class="src">From tasks, yesterday's email and saved notes.</p>
+              </div>
+            </div>
+            <div class="log">
+              <div class="sh"><h2>Log</h2><a>All activity →</a></div>
+              <div class="tr"><span class="t mono">09:12</span><span>Drafted a reply to Aoife Brennan</span></div>
+              <div class="tr"><span class="t mono">08:51</span><span>Proposed a calendar invite</span></div>
+              <div class="tr"><span class="t mono">08:40</span><span>Added task “Book demo day room”</span></div>
+              <div class="tr"><span class="t mono">08:02</span><span>Wrote the daily brief</span></div>
+              <div class="tr"><span class="t mono">07:55</span><span>Read 14 new emails</span></div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div></div>
+    <div class="spec">
+      <div><h3>Type</h3><ul><li>IBM Plex Sans, 14.5 body, 28/600 title</li><li>Plex Mono for times, counts, dates only</li><li>Uppercase section heads on a 1px ink rule</li></ul></div>
+      <div><h3>Colour</h3><div class="chips"><span class="chip"><i style="background:#1b2533"></i>ink</span><span class="chip"><i style="background:#5b6676"></i>ink-2</span><span class="chip"><i style="background:#e4e7eb"></i>rule</span><span class="chip"><i style="background:#b4443a"></i>needs you</span><span class="chip"><i style="background:#1e2d40"></i>approve</span></div></div>
+      <div><h3>What changes</h3><ul><li>Area hues retired; icons carry the map</li><li>Approvals become rows you act on in place</li><li>Densest of the three; most scannable</li></ul></div>
+    </div>
+  </section>
+
+  <!-- ============ B. DOGPATCH HOUSE ============ -->
+  <section class="dir" id="house">
+    <div class="dir-head">
+      <h2>B · Dogpatch</h2><span class="tag">Nunito Sans · Dogpatch palette</span>
+      <p>Closest to dogpatchlabs.com: Oxford Blue rail, a navy band like the site's photo headers, white cards, Dogpatch Blue for actions and Ocean Green for approve. Nunito Sans stands in for Avenir.</p>
+    </div>
+    <div class="stage"><div class="frame">
+      <div class="dp">
+        <aside class="rail">
+          <div class="logo"><b>gabe</b><span>Dogpatch</span></div>
+          <div class="nav"><svg class="i"><use href="#i-agents"/></svg>Agents</div>
+          <div class="nav on"><svg class="i"><use href="#i-today"/></svg>Today</div>
+          <div class="nav"><svg class="i"><use href="#i-shield"/></svg>Approvals<span class="n">2</span></div>
+          <div class="nav"><svg class="i"><use href="#i-tasks"/></svg>Tasks<span class="n q">12</span></div>
+          <div class="nav"><svg class="i"><use href="#i-inbox"/></svg>Inbox</div>
+          <div class="nav"><svg class="i"><use href="#i-notes"/></svg>Notes</div>
+          <div class="sep"></div>
+          <div class="nav"><svg class="i"><use href="#i-activity"/></svg>Activity</div>
+          <div class="nav"><svg class="i"><use href="#i-settings"/></svg>Settings</div>
+          <div class="me"><span class="av">DL</span>Ops team</div>
+        </aside>
+        <main class="main">
+          <div class="hero">
+            <div><h1>Good morning</h1><div class="d">Thursday 26 November</div></div>
+            <div class="askb"><svg class="i"><use href="#i-search"/></svg>Ask Gabe anything<span class="send"><svg class="i"><use href="#i-send"/></svg></span></div>
+          </div>
+          <div class="body">
+            <div class="col">
+              <section class="card">
+                <div class="ch"><h2>Needs you</h2><span class="pill">3</span><a>Approvals</a></div>
+                <div class="row"><span class="ic r"><svg class="i"><use href="#i-mail"/></svg></span><div class="tx"><b>Send email to Aoife Brennan</b><span>Re: Hot desk for January</span></div><div class="go"><span class="btn g"><svg class="i"><use href="#i-check"/></svg>Approve</span><span class="btn">Edit</span></div></div>
+                <div class="draft"><b>Hi Aoife,</b> your hot desk is renewed from 1 January at the same rate. Your new fob will be at reception from Monday.</div>
+                <div class="row"><span class="ic r"><svg class="i"><use href="#i-today"/></svg></span><div class="tx"><b>Add demo day dry run to calendar</b><span>Tue 1 Dec, 14:00</span></div><div class="go"><span class="btn g"><svg class="i"><use href="#i-check"/></svg>Approve</span><span class="btn">Edit</span></div></div>
+                <div class="row"><span class="ic r"><svg class="i"><use href="#i-alert"/></svg></span><div class="tx"><b>Confirm catering numbers</b><span>Overdue since Tue 24 Nov</span></div><div class="go"><span class="btn">Open</span></div></div>
+              </section>
+            </div>
+            <div class="col">
+              <section class="card">
+                <div class="stats">
+                  <div><b>3</b><span>Due today</span></div>
+                  <div><b>14</b><span>New emails</span></div>
+                  <div><b>2</b><span>Meetings</span></div>
+                </div>
+              </section>
+              <section class="card">
+                <div class="ch"><h2>Daily brief</h2><a>Email it</a></div>
+                <div class="brief"><ul>
+                  <li><b>Founders' breakfast, 09:00–10:00</b>, ground floor. 24 signed up.</li>
+                  <li>Three hot-desk renewals land this week.</li>
+                  <li>Demo day room booking closes Friday.</li>
+                </ul></div>
+                <div class="cf"><span class="btn bl"><svg class="i"><use href="#i-refresh"/></svg>Refresh</span><span class="nx">Next: Fri 08:00</span></div>
+              </section>
+              <section class="card">
+                <div class="ch"><h2>Recent</h2><a>Activity</a></div>
+                <ul class="tl">
+                  <li><time>09:12</time>Drafted a reply to Aoife Brennan</li>
+                  <li><time>08:51</time>Proposed a calendar invite</li>
+                  <li><time>08:40</time>Added task “Book demo day room”</li>
+                  <li><time>08:02</time>Wrote the daily brief</li>
+                </ul>
+              </section>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div></div>
+    <div class="spec">
+      <div><h3>Type</h3><ul><li>Nunito Sans (Avenir stand-in), 15 body, 32/700 title</li><li>Lowercase “gabe” wordmark, tracked caps sub-brand</li><li>Bold row titles, Raven Blue detail lines</li></ul></div>
+      <div><h3>Colour</h3><div class="chips"><span class="chip"><i style="background:#1e2d40"></i>oxford</span><span class="chip"><i style="background:#3d6ea5"></i>dogpatch</span><span class="chip"><i style="background:#6ca3e6"></i>maya</span><span class="chip"><i style="background:#cb5549"></i>indian red</span><span class="chip"><i style="background:#2e7d50"></i>ocean</span></div></div>
+      <div><h3>What changes</h3><ul><li>Reads as a Dogpatch product</li><li>Warmest; most familiar SaaS shape</li><li>Navy band costs ~70px of height</li></ul></div>
+    </div>
+  </section>
+
+  <!-- ============ C. BRIEFING PAPER ============ -->
+  <section class="dir" id="paper">
+    <div class="dir-head">
+      <h2>C · Briefing paper</h2><span class="tag">Source Serif 4 + Source Sans 3</span>
+      <p>The brief is the page. Navigation moves to a top bar, the day reads like a memo in serif, and everything that needs a person sits in a margin column beside it.</p>
+    </div>
+    <div class="stage"><div class="frame">
+      <div class="bp">
+        <header class="top">
+          <span class="wm">Gabe<small>Dogpatch Labs</small></span>
+          <nav class="tabs">
+            <a>Agents</a><a class="on">Today</a><a>Approvals <span class="n">2</span></a><a>Tasks</a><a>Inbox</a><a>Notes</a><a>Activity</a><a>Settings</a>
+          </nav>
+          <span class="srch"><svg class="i"><use href="#i-search"/></svg>Ask Gabe</span>
+        </header>
+        <div class="page">
+          <article class="doc">
+            <div class="kick">Daily brief · written 08:02</div>
+            <h1>Thursday 26 November</h1>
+            <p class="lede">A light day. The founders' breakfast is at nine, two things are waiting for your OK, and one task slipped past Tuesday.</p>
+            <h2>Today</h2>
+            <ul>
+              <li><b>Founders' breakfast, 09:00–10:00</b>, ground floor. 24 signed up.</li>
+              <li>Three hot-desk renewals land this week. <a>One reply is drafted.</a></li>
+            </ul>
+            <h2>Coming up</h2>
+            <ul>
+              <li>December demo day room booking closes <b>Friday</b>.</li>
+              <li>Dry run proposed for Tue 1 Dec at 14:00.</li>
+            </ul>
+            <h2>Done yesterday</h2>
+            <ul>
+              <li>Answered 6 member emails and filed 2 maintenance requests.</li>
+            </ul>
+            <div class="tools"><span class="btn ink"><svg class="i"><use href="#i-mail"/></svg>Email this brief</span><span class="btn"><svg class="i"><use href="#i-refresh"/></svg>Rewrite</span></div>
+          </article>
+          <aside class="side">
+            <div>
+              <h3>Needs you <span class="n">3</span></h3>
+              <div class="q">
+                <span class="l"><svg class="i"><use href="#i-shield"/></svg>Send email</span>
+                <b>Aoife Brennan · Hot desk for January</b>
+                <p>Hi Aoife, your hot desk is renewed from 1 January at the same rate…</p>
+                <div class="acts"><span class="btn ink"><svg class="i"><use href="#i-check"/></svg>Approve</span><span class="btn">Edit</span></div>
+              </div>
+              <div class="q s">
+                <span class="l"><svg class="i"><use href="#i-alert"/></svg>Overdue</span>
+                <b>Confirm catering numbers</b>
+              </div>
+            </div>
+            <div>
+              <h3>Recent</h3>
+              <ul class="lst">
+                <li><time>09:12</time>Drafted a reply to Aoife</li>
+                <li><time>08:51</time>Proposed a calendar invite<span class="tg">Waiting</span></li>
+                <li><time>08:40</time>Added a task</li>
+                <li><time>08:02</time>Wrote this brief</li>
+              </ul>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div></div>
+    <div class="spec">
+      <div><h3>Type</h3><ul><li>Source Serif 4 for the brief and titles (40/600)</li><li>Source Sans 3 for controls and labels</li><li>Reading measure capped at 60ch</li></ul></div>
+      <div><h3>Colour</h3><div class="chips"><span class="chip"><i style="background:#16202c"></i>ink</span><span class="chip"><i style="background:#f5f7fa"></i>margin</span><span class="chip"><i style="background:#2f5f94"></i>link</span><span class="chip"><i style="background:#b4443a"></i>needs you</span></div></div>
+      <div><h3>What changes</h3><ul><li>Top tabs free the full width</li><li>Calmest; best for leaders reading the brief</li><li>Weakest for dense task and inbox lists</li></ul></div>
+    </div>
+  </section>
+
+  <!-- ============ COMPARE ============ -->
+  <section class="cmp" id="compare">
+    <h2>Side by side</h2>
+    <div class="tbl">
+      <table>
+        <thead><tr><th></th><th>A1 · Colour-coded</th><th>A2 · Colour tiles</th><th>Current</th><th>A · Ledger</th><th>B · Dogpatch</th><th>C · Briefing paper</th></tr></thead>
+        <tbody>
+          <tr><th>Colour</th><td>Gabe's hues on icons, labels and dots</td><td>Gabe's hues as filled tiles and section rules</td><td>9 bright hues, one per area</td><td>Ink only; red means “needs you”</td><td>Dogpatch navy + blue, red and green for state</td><td>Ink only; red means “needs you”</td></tr>
+          <tr><th>Navigation</th><td>Light index, hue icons</td><td>Light index, filled hue tiles</td><td>Dark rail, coloured tiles</td><td>Light index, icons, counts</td><td>Oxford Blue rail</td><td>Top tabs</td></tr>
+          <tr><th>Approvals</th><td>Rows with Approve in place</td><td>Rows with Approve in place, hue tile per row</td><td>Summary row + separate panel</td><td>Rows with Approve in place, draft inline</td><td>Card list with Approve in place</td><td>Margin cards beside the brief</td></tr>
+          <tr><th>Density</th><td>High</td><td>High</td><td>Medium</td><td>High</td><td>Medium</td><td>Low</td></tr>
+          <tr><th>Feels like</th><td>Ops console with a colour key</td><td>Today's Gabe, tidied up</td><td>Playful, consumer</td><td>Ops console, precise</td><td>A Dogpatch product</td><td>A memo from your chief of staff</td></tr>
+          <tr><th>Best for</th><td>Admin and ops staff working the queue</td><td>Teams attached to the current look</td><td>—</td><td>Admin and ops staff working the queue</td><td>Everyone; easiest sell</td><td>Leaders reading the brief</td></tr>
+          <tr><th>Build effort</th><td>As A; hue tokens already exist</td><td>As A; reuses today's tile styles</td><td>—</td><td>Tokens + rewrite of panels as rows</td><td>Mostly tokens and the rail</td><td>New shell (top nav), page-by-page</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="verdict">
+      <h3>Recommendation</h3>
+      <p>A1 · Colour-coded. It keeps Gabe's colour map, so every area is still recognisable at a glance, but the colour sits on small marks against a white, ruled page. That reads as more professional than today, and the rows that need a person still stand out.</p>
+      <p>A2 is the safer step if people are attached to the current tiles. It's louder, and with eight hues filled at once in the nav, the pink “needs you” rows have more to compete with.</p>
+    </div>
+  </section>
+</div>
+
+<script>
+(function () {
+  function fit() {
+    document.querySelectorAll('.stage').forEach(function (st) {
+      st.style.setProperty('--s', (st.clientWidth / 1200).toFixed(4));
+    });
+  }
+  fit();
+  window.addEventListener('resize', fit);
+  if (window.ResizeObserver) new ResizeObserver(fit).observe(document.body);
+})();
+</script>

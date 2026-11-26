@@ -51,6 +51,8 @@ integrations:                             # what Gabe can do (below)
   - tasks
   - name: email
     settings: {backend: gmail}            # gmail | outbox (practice: nothing is sent)
+  - name: calendar
+    settings: {backend: google}           # google | local (practice: nobody is invited)
 policy:                                   # what may run without a person's OK
   defaults: {read: allow, write: allow, external: ask}
   tools: {send_email: ask}                # one action, by name
@@ -65,9 +67,13 @@ loosening rules: say plainly what a change lets Gabe do without asking.
 
 ## Integrations
 
-Built in: `core` (time), `memory` (notes), `tasks`, `email`, `mcp`, `claude_code`.
+Built in: `core` (time), `memory` (notes), `tasks`, `email`, `calendar`, `mcp`, `claude_code`.
 
-**MCP servers** connect existing tools (Notion, Linear, Slack, Google Calendar...):
+`calendar` actions: `list_events`, `find_free_time` (read), `block_time` (write: own calendar,
+no guests), `create_event`, `update_event`, `cancel_event`, `respond_to_invite` (external:
+guests see them). Settings: `backend`, `calendar_id`, `working_hours`, `working_days`.
+
+**MCP servers** connect existing tools (Notion, Linear, Slack...):
 
 ```yaml
   - name: mcp

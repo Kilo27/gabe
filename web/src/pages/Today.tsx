@@ -1,16 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  AlertTriangle, ArrowRight, CalendarClock, CheckCircle2, Clock, FileText, Loader2, Mail, OctagonAlert, RefreshCw, Send, ShieldCheck, Sparkles,
+  AlertTriangle, ArrowRight, CalendarClock, CalendarDays, CheckCircle2, Clock, FileText, Loader2, Mail, OctagonAlert, RefreshCw, Send, ShieldCheck, Sparkles, Users, Video,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, type AuditRow, type Job, type Session } from "../api";
+import { api, native, type Approval, type AuditRow, type CalendarEvent, type CalendarStatus, type Job, type Session } from "../api";
+import { ApprovalCard } from "../components/ApprovalCard";
 import { useOverview } from "../components/Shell";
 import { Empty, Markdown, Notice, PageHeader, Skeleton, SkeletonList, useToast } from "../components/ui";
-import { greeting, longDate, plural } from "../lib/format";
+import { clock, greeting, longDate, plural } from "../lib/format";
 import { ActivityRow } from "./Activity";
 
-const SUGGESTIONS = ["What's overdue?", "Summarise today's email", "Add a task", "What did we decide about…"];
+const SUGGESTIONS = ["What's overdue?", "Summarise today's email", "Find time to meet with…", "What did we decide about…"];
 
 export function AskBox({ autoFocus, compact }: { autoFocus?: boolean; compact?: boolean }) {
   const [text, setText] = useState("");
@@ -56,32 +57,47 @@ export function AskBox({ autoFocus, compact }: { autoFocus?: boolean; compact?: 
   );
 }
 
+const INLINE_APPROVALS = 3;
+
 function NeedsYou() {
   const { data, isLoading } = useOverview();
+  const approvals = useQuery({ queryKey: ["approvals"], queryFn: () => api.get<Approval[]>("/api/approvals"), refetchInterval: 4000 });
   if (isLoading || !data) return <div className="panel"><SkeletonList rows={3} /></div>;
   const t = data.tasks;
+  const pending = (approvals.data ?? []).filter((a) => a.status === "pending");
+  const inline = pending.slice(0, INLINE_APPROVALS);
   const rows: { hue: string; icon: any; text: string; to: string; cta: string }[] = [];
-  if (data.approvals_pending) rows.push({ hue: "approvals", icon: ShieldCheck, text: `${plural(data.approvals_pending, "thing")} ${data.approvals_pending === 1 ? "is" : "are"} waiting for your OK`, to: "/approvals", cta: "Review" });
+  const rest = data.approvals_pending - inline.length;
+  if (rest > 0) rows.push({ hue: "approvals", icon: ShieldCheck, text: inline.length ? `${plural(rest, "more thing")} waiting for your OK` : `${plural(rest, "thing")} ${rest === 1 ? "is" : "are"} waiting for your OK`, to: "/approvals", cta: "Review" });
   if (t.overdue) rows.push({ hue: "danger", icon: AlertTriangle, text: `${plural(t.overdue, "task")} ${t.overdue === 1 ? "is" : "are"} overdue`, to: "/tasks?due=overdue", cta: "See them" });
   if (t.due_today) rows.push({ hue: "tasks", icon: Clock, text: `${plural(t.due_today, "task")} due today`, to: "/tasks?due=today", cta: "See them" });
   if (t.blocked) rows.push({ hue: "danger", icon: OctagonAlert, text: `${plural(t.blocked, "task")} ${t.blocked === 1 ? "is" : "are"} blocked`, to: "/tasks?status=blocked", cta: "Unblock" });
   if (t.due_week) rows.push({ hue: "tasks", icon: CalendarClock, text: `${plural(t.due_week, "task")} due in the next 7 days`, to: "/tasks?due=week", cta: "Plan" });
   if (data.email.state !== "connected" && data.email.state !== "practice") rows.push({ hue: "inbox", icon: Mail, text: "Gmail isn't connected", to: "/settings/email", cta: "Fix" });
+  if (data.calendar && ["disconnected", "missing_file"].includes(data.calendar.state)) rows.push({ hue: "today", icon: CalendarDays, text: "The calendar isn't connected", to: "/settings/calendar", cta: "Fix" });
 
   return (
     <section className="panel" aria-labelledby="needs-you">
       <div className="panel-head" data-area="approvals">
         <span className="swatch" />
         <h2 id="needs-you">Needs you</h2>
+        {pending.length + rows.length > 0 && <span className="head-count">{data.approvals_pending + t.overdue}</span>}
+        <span className="spacer" />
+        <Link to="/approvals" className="btn btn-ghost btn-sm">Approvals <ArrowRight size={15} /></Link>
       </div>
-      {rows.length === 0 ? (
+      {inline.length > 0 && (
+        <div className="needs-approvals">
+          {inline.map((a) => <ApprovalCard key={a.id} a={a} compact />)}
+        </div>
+      )}
+      {rows.length === 0 && inline.length === 0 ? (
         <div className="caught-up" data-area="tasks">
           <CheckCircle2 size={22} />
           <div>
             <strong>You're all caught up.</strong>
           </div>
         </div>
-      ) : (
+      ) : rows.length > 0 && (
         <ul className="needs">
           {rows.map((r) => (
             <li key={r.text} data-area={r.hue}>
@@ -194,6 +210,62 @@ function Brief() {
   );
 }
 
+function openLink(url: string) {
+  if (native()) native()!.open_url(url); else window.open(url, "_blank", "noopener");
+}
+
+function Meetings() {
+  const { data: ov } = useOverview();
+  const on = !!ov && ["connected", "practice"].includes(ov.calendar?.state);
+  const { data, isLoading } = useQuery({
+    queryKey: ["calendar", ov?.today],
+    queryFn: () => api.get<{ status: CalendarStatus; events: CalendarEvent[] }>("/api/calendar"),
+    enabled: on,
+    refetchInterval: 5 * 60_000,
+  });
+  if (!on) return null;
+  const events = data?.events ?? [];
+  const now = new Date();
+  return (
+    <section className="panel" data-area="today" aria-labelledby="meetings-title">
+      <div className="panel-head">
+        <span className="swatch" />
+        <h2 id="meetings-title">Today's calendar</h2>
+      </div>
+      {isLoading ? <SkeletonList rows={3} /> : data?.status.state === "error" ? (
+        <div className="panel-pad"><Notice hue="danger" icon={AlertTriangle}>{data.status.message}</Notice></div>
+      ) : events.length === 0 ? (
+        <p className="muted" style={{ padding: "14px 0" }}>Nothing on.</p>
+      ) : (
+        <ul className="agenda">
+          {events.map((e) => {
+            const past = !e.all_day && new Date(e.end) < now;
+            const guests = (e.attendees ?? []).length;
+            return (
+              <li key={e.id} className={past ? "past" : undefined}>
+                <span className="agenda-time">{e.all_day ? "All day" : `${clock(e.start)}–${clock(e.end)}`}</span>
+                <span className="grow agenda-what">
+                  <strong>{e.title}</strong>
+                  {(guests > 0 || e.location || e.my_response === "needsAction") && (
+                    <span className="faint agenda-meta">
+                      {guests > 0 && <span><Users size={13} /> {guests}</span>}
+                      {e.location && <span>{e.location}</span>}
+                      {e.my_response === "needsAction" && <span className="chip">Not answered</span>}
+                    </span>
+                  )}
+                </span>
+                {e.video_link && !past && (
+                  <button className="btn btn-ghost btn-icon btn-sm" aria-label={`Join ${e.title}`} onClick={() => openLink(e.video_link!)}><Video size={16} /></button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function Recent() {
   const { data, isLoading } = useQuery({
     queryKey: ["activity", "recent"],
@@ -232,6 +304,7 @@ export default function Today() {
           <Brief />
         </div>
         <div className="stack">
+          <Meetings />
           <section className="panel" aria-labelledby="ask-title" data-area="ask">
             <div className="panel-head">
               <span className="swatch" />

@@ -29,6 +29,8 @@ from gabe.audit import AuditLog
 from gabe.config import Config, load_config
 from gabe.integrations._store import JsonStore
 from gabe.policy import Declined
+from gabe import schedules
+from gabe.schedules import is_quiet
 from gabe.tools.registry import Tool, validate_input
 
 
@@ -81,7 +83,7 @@ def friendly_error(e: BaseException) -> str:
     if name == "RateLimitError":
         return "Gabe's AI model is busy right now (rate limit). Wait a minute and try again."
     if "invalid_grant" in text or "Token has been expired" in text:
-        return "The Gmail connection has expired. Reconnect Gmail in Settings, then try again."
+        return "The Google sign-in has expired. Sign in with Google again in Settings (Email or Calendar), then try again."
     return f"Something went wrong: {text or name}"
 
 
@@ -331,15 +333,17 @@ class Sessions:
                     return answered.get("answer", "")
                 return "The user didn't answer. Make a reasonable assumption, say what you assumed, and carry on."
 
-            agent = build_gabe(cfg, approver=approver, on_event=on_event, member=member, asker=asker)
+            agent = build_gabe(cfg, approver=approver, on_event=on_event, member=member, asker=asker, scheduling=True)
             live = _Live(agent=agent)
             holder["live"] = live
             self._live[sid] = live
             return live
 
-    def send(self, sid: str, text: str, task: dict[str, Any] | None = None, auto: bool = False) -> dict[str, Any]:
+    def send(self, sid: str, text: str, task: dict[str, Any] | None = None, auto: bool = False,
+             prompt: str | None = None) -> dict[str, Any]:
         """Give the agent a message. With `task` (a task-list entry), the agent gets its details
-        and is asked to keep it up to date; the task records who is working on it."""
+        and is asked to keep it up to date; the task records who is working on it. `prompt`
+        replaces what the agent is sent (the chat still shows `text`)."""
         text = text.strip()
         if not text and task:
             text = "Please work on this task."
@@ -354,7 +358,7 @@ class Sessions:
         user_msg = {"id": new_id(), "role": "user", "text": text, "ts": now(), "status": "done", "activity": []}
         if auto:
             user_msg["auto"] = True  # written by Gabe (e.g. a failure to fix), not typed by a person
-        prompt = text
+        prompt = prompt or text
         if task:
             user_msg["task"] = {"id": task["id"], "title": task["title"]}
             prompt = f"{text}\n\n{task_brief(task)}"
@@ -450,6 +454,17 @@ class Sessions:
         """Every run ends in a notice: done, or failed (and, when it can, Gabe sets about fixing it)."""
         s = self._store(sid).load()
         title = s.get("title", "")
+        replies = [m for m in s.get("messages", []) if m["role"] == "assistant"]
+        if s.get("schedule_id"):
+            # A recurring job: quiet when there's nothing to report, and a job that keeps
+            # failing is reported (and handed to Gabe) once, not on every run.
+            msg = next((m for m in replies if m["id"] == message_id), {})
+            if error is None:
+                if not is_quiet(msg.get("text", "")):
+                    self.app.notify("done", title, msg.get("text", "").strip().split("\n")[0], sid, who)
+                return
+            if len(replies) > 1 and replies[-2].get("status") == "error":
+                return
         if error is None:
             self.app.notify("done", f"{who} finished", title, sid, who)
             return
@@ -662,6 +677,45 @@ class WebState:
 
     def job(self, name: str) -> dict[str, Any] | None:
         return self.jobs.get(name)
+
+    # Recurring jobs (gabe/schedules.py). Each has its own conversation; every run starts
+    # with a fresh memory and the conversation keeps only the latest runs.
+    KEEP_RUNS = 50
+
+    def run_due_schedules(self, at: datetime | None = None) -> list[str]:
+        """Start every recurring job that is due. Returns the ids started. A job still busy
+        with its last run (say, waiting on an approval) skips this one."""
+        cfg = self.config()
+        started = []
+        for s in schedules.claim_due(cfg, at):
+            if cfg.paused:
+                schedules.record_run(cfg, s["id"], None, ran=False)
+                continue
+            try:
+                started.append(self.run_schedule(s))
+            except Exception as e:
+                log.warning("recurring job %s (%s) didn't start: %s", s["name"], s["id"], e)
+                schedules.record_run(cfg, s["id"], None, ran=False)
+        return [x for x in started if x]
+
+    def run_schedule(self, s: dict[str, Any]) -> str | None:
+        """Run one recurring job now, in its conversation. Returns the job's id, or None if
+        it was skipped because its last run hasn't finished."""
+        cfg = self.config()
+        sid = s.get("session_id")
+        if not sid or self.sessions.get(sid) is None:
+            sid = self.sessions.create(title=s["name"])["id"]
+            self.sessions._store(sid).update(lambda d: d.update(schedule_id=s["id"]))
+        try:
+            self.sessions.forget(sid)  # every run starts fresh
+        except RuntimeError:
+            schedules.record_run(cfg, s["id"], sid, ran=False)
+            return None
+        keep = self.KEEP_RUNS * 2
+        self.sessions._store(sid).update(lambda d: d.update(messages=d.get("messages", [])[-keep:]))
+        self.sessions.send(sid, s["instruction"], auto=True, prompt=schedules.run_prompt(s))
+        schedules.record_run(cfg, s["id"], sid, ran=True)
+        return s["id"]
 
 
 def task_brief(task: dict[str, Any]) -> str:
