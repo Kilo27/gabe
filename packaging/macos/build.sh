@@ -8,6 +8,15 @@ set -e
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 PY="${PYTHON:-$ROOT/.venv/bin/python}"
+if [ -z "$PYTHON" ] && [ ! -x "$PY" ]; then
+  # In a git worktree the venv lives in the main checkout.
+  MAIN="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)"
+  PY="$MAIN/.venv/bin/python"
+fi
+if [ ! -x "$PY" ]; then
+  echo "error: no Python venv at $PY (set PYTHON=/path/to/python)" >&2
+  exit 1
+fi
 OUT="$ROOT/dist/macos"
 
 if [ ! -f packaging/google_oauth_client.json ]; then
