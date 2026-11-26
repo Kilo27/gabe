@@ -55,6 +55,15 @@ integrations:
     settings:
       backend: gmail       # gmail | outbox (outbox writes to data/email/outbox, sends nothing)
       credentials_file: gmail_client_secret.json   # OAuth client from Google Cloud; see docs/GMAIL_SETUP.md
+  # Calendar: Google Calendar (Settings → Calendar → Sign in with Google, or `gabe auth calendar`),
+  # or `backend: local` for a practice calendar where nobody is invited. Booking, moving or
+  # cancelling a meeting reaches guests, so it asks first by default.
+  - name: calendar
+    settings:
+      backend: google      # google | local
+      # calendar_id: primary
+      # working_hours: "09:00-17:30"   # for find_free_time; default: company.working_hours
+      # working_days: [mon, tue, wed, thu, fri]
   # Gabe changes its own setup (rules, team, playbooks, integrations) by handing the request
   # to Claude Code, after a person approves. Skipped when Claude Code isn't installed.
   - claude_code

@@ -76,6 +76,13 @@ export type Overview = {
   next_brief: string | null;
   brief_job: Job | null;
   email: EmailStatus;
+  calendar: CalendarStatus;
+};
+
+export type CalendarStatus = { state: "off" | "practice" | "missing_file" | "disconnected" | "connected" | "error"; message: string; address?: string; backend?: string };
+export type CalendarEvent = {
+  id: string; title: string; start: string; end: string; all_day: boolean; location?: string; video_link?: string;
+  attendees?: { email: string; name?: string; response: string }[]; organizer?: string; my_response?: string;
 };
 
 export type EmailStatus = { state: "off" | "practice" | "missing_file" | "disconnected" | "connected" | "error"; message: string; address?: string; backend?: string; mailboxes?: { address: string; connected: boolean }[] };
@@ -129,7 +136,7 @@ export type Settings = {
   delegates: { name: string; description: string; instructions: string; tools: string[] | null }[];
   all_tools: string[];
   provider: Record<string, any>;
-  integrations: { name: string; settings: Record<string, any>; status?: EmailStatus; servers?: McpServer[] }[];
+  integrations: { name: string; settings: Record<string, any>; status?: EmailStatus & CalendarStatus; servers?: McpServer[] }[];
   playbooks: { name: string; text: string }[];
   usage: { date: string; input: number; output: number; cached: number; steps: number }[];
   config_path: string;

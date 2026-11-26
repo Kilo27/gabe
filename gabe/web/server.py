@@ -209,6 +209,25 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
 
         return gmail_client_from_config(state.config(), account or None)
 
+    _calendar_address: dict[str, str] = {}
+
+    def calendar_status() -> dict[str, Any]:
+        from gabe.integrations.calendar import calendar_ctx, calendar_paths, calendar_spec
+
+        cfg = state.config()
+        spec = calendar_spec(cfg)
+        if not spec:
+            return {"state": "off", "message": "The calendar is off."}
+        backend = spec.settings.get("backend", "google")
+        if backend == "local":
+            return {"state": "practice", "backend": backend, "message": "Practice calendar: nobody is invited."}
+        creds, token = calendar_paths(calendar_ctx(cfg))
+        if not creds.exists():
+            return {"state": "missing_file", "backend": "google", "message": "Google sign-in isn't set up in this copy of Gabe."}
+        if not token.exists():
+            return {"state": "disconnected", "backend": "google", "message": "Sign in with Google to connect the calendar."}
+        return {"state": "connected", "backend": "google", "address": _calendar_address.get("value", ""), "message": "Connected."}
+
     def person_audit(tool: str, input: dict[str, Any], outcome: str = "ok") -> None:
         state.audit().record(agent=PERSON, tool=tool, input=input, outcome=outcome, error=False)
 
@@ -251,6 +270,7 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
             "next_brief": nxt,
             "brief_job": state.job("brief"),
             "email": gmail_status(),
+            "calendar": calendar_status(),
         }
 
     # -- briefs ----------------------------------------------------------------
@@ -772,6 +792,8 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
             entry = {"name": spec.name, "settings": {k: v for k, v in spec.settings.items() if "key" not in k.lower()}}
             if spec.name == "email":
                 entry["status"] = gmail_status()
+            if spec.name == "calendar":
+                entry["status"] = calendar_status()
             if spec.name == "faq":
                 entry["settings"] = {}  # see /api/faq
             if spec.name == "mcp":
@@ -990,6 +1012,92 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
             set_accounts(rest)
         _gmail_address.pop("value", None)
         person_audit("edit_settings", {"section": "email", "action": "disconnect", "address": address})
+        return {"ok": True}
+
+    # -- calendar --------------------------------------------------------------
+
+    @app.get("/api/calendar")
+    def calendar(date: str = "", days: int = 1):
+        """Events from the start of `date` (default today) for `days` days."""
+        from gabe.integrations.calendar import calendar_client_from_config, day_events
+
+        st = calendar_status()
+        if st["state"] not in ("connected", "practice"):
+            return {"status": st, "events": []}
+        if date and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+            bad("That isn't a date.")
+        cfg = state.config()
+        try:
+            client = calendar_client_from_config(cfg)
+            events = day_events(cfg, datetime.fromisoformat(date or today_str()).date(), max(1, min(days, 14)), client)
+            if st["state"] == "connected" and "value" not in _calendar_address:
+                _calendar_address["value"] = client.address()
+                st = calendar_status()
+        except Exception as e:
+            return {"status": {**st, "state": "error", "message": friendly_error(e)}, "events": []}
+        return {"status": st, "events": events}
+
+    @app.put("/api/settings/calendar-mode")
+    def calendar_mode(payload: dict = Body(...)):
+        backend = payload.get("backend")
+        if backend not in ("google", "local", "off"):
+            bad("Unknown calendar mode.")
+
+        def fn(raw):
+            items = raw.setdefault("integrations", [])
+            for i, it in enumerate(items):
+                if it == "calendar" or (isinstance(it, dict) and it.get("name") == "calendar"):
+                    if backend == "off":
+                        del items[i]
+                        return
+                    if not isinstance(it, dict):
+                        it = {"name": "calendar", "settings": {}}
+                        items[i] = it
+                    it.setdefault("settings", {})["backend"] = backend
+                    return
+            if backend != "off":
+                items.append({"name": "calendar", "settings": {"backend": backend}})
+
+        state.edit_config(fn)
+        _calendar_address.pop("value", None)
+        person_audit("edit_settings", {"section": "calendar", "backend": backend})
+        return settings()
+
+    @app.post("/api/settings/calendar/connect")
+    def calendar_connect():
+        from gabe.integrations.calendar import calendar_ctx, calendar_paths, calendar_spec
+        from gabe.integrations.gcal_backend import SCOPES, GoogleCalendarClient, build_service
+        from gabe.integrations.gmail_backend import load_credentials
+
+        cfg = state.config()
+        spec = calendar_spec(cfg)
+        if not spec or spec.settings.get("backend", "google") != "google":
+            bad("Switch the calendar to Google Calendar first.")
+        ctx = calendar_ctx(cfg)
+        creds, token = calendar_paths(ctx)
+        if not creds.exists():
+            bad("The Google sign-in file is missing. See docs/GMAIL_SETUP.md, step 1.")
+
+        def go():
+            pending = ctx.path("google_token_pending.json")
+            pending.unlink(missing_ok=True)
+            service = build_service(load_credentials(creds, pending, interactive=True, scopes=SCOPES))
+            address = GoogleCalendarClient(lambda: service).address()
+            pending.replace(token)
+            _calendar_address["value"] = address
+            person_audit("edit_settings", {"section": "calendar", "action": "connect", "address": address})
+            return {"address": address}
+
+        return state.start_job("calendar", go, label="Calendar connection")
+
+    @app.post("/api/settings/calendar/disconnect")
+    def calendar_disconnect():
+        from gabe.integrations.calendar import calendar_ctx, calendar_paths
+
+        _, token = calendar_paths(calendar_ctx(state.config()))
+        token.unlink(missing_ok=True)
+        address = _calendar_address.pop("value", "")
+        person_audit("edit_settings", {"section": "calendar", "action": "disconnect", "address": address})
         return {"ok": True}
 
     def playbook_path(name: str) -> Path:

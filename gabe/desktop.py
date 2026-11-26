@@ -169,6 +169,15 @@ def describe_request(rec: dict) -> tuple[str, str]:
     if tool in ("send_email", "draft_email"):
         to = ", ".join(args.get("to") or [])
         body = f"Send an email to {to}: {args.get('subject', '')}"
+    elif tool in ("create_event", "update_event"):
+        guests = ", ".join(args.get("attendees") or [])
+        what = "Book" if tool == "create_event" else "Change"
+        body = f"{what} {args.get('title') or 'a meeting'}{' ' + args['start'] if args.get('start') else ''}" \
+            + (f" with {guests}" if guests else "")
+    elif tool == "cancel_event":
+        body = "Cancel a meeting"
+    elif tool == "respond_to_invite":
+        body = f"Answer an invitation: {args.get('response', '')}"
     elif tool == "add_team_member":
         body = f"Add {args.get('name', 'a new bot')} to the team"
     elif tool == "change_gabe":

@@ -13,6 +13,7 @@ const TABS = [
   ["brief", "Daily brief"],
   ["rules", "Approval rules"],
   ["email", "Email"],
+  ["calendar", "Calendar"],
   ["connections", "Connections"],
   ["faq", "FAQ bot"],
   ["playbooks", "Playbooks"],
@@ -225,6 +226,60 @@ function Email({ s }: { s: Settings }) {
   );
 }
 
+function Calendar({ s }: { s: Settings }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const st = s.integrations.find((i) => i.name === "calendar")?.status;
+  const mode = useSave("/api/settings/calendar-mode");
+  const job = useQuery({
+    queryKey: ["job", "calendar"],
+    queryFn: () => api.get<Job>("/api/jobs/calendar"),
+    refetchInterval: (q) => (q.state.data?.status === "running" ? 2000 : false),
+  });
+  useEffect(() => {
+    if (job.data?.status === "done") { qc.invalidateQueries({ queryKey: ["settings"] }); qc.invalidateQueries({ queryKey: ["calendar"] }); }
+  }, [job.data?.status, qc]);
+  const connect = useMutation({
+    mutationFn: () => api.post<Job>("/api/settings/calendar/connect"),
+    onSuccess: (j) => qc.setQueryData(["job", "calendar"], j),
+    onError: (e: Error) => toast(e.message, "danger"),
+  });
+  const disconnect = useMutation({
+    mutationFn: () => api.post("/api/settings/calendar/disconnect"),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["settings"] }); qc.invalidateQueries({ queryKey: ["calendar"] }); toast("Calendar disconnected", "today"); },
+  });
+  const backend = st?.backend ?? "off";
+  return (
+    <Section title="Calendar">
+      <div className="field">
+        <span>Mode</span>
+        <Segmented label="Calendar mode" value={backend} onChange={(v) => mode.mutate({ backend: v })} options={[
+          { value: "google", label: "Google Calendar" },
+          { value: "local", label: "Practice (nobody is invited)" },
+          { value: "off", label: "Off" },
+        ]} />
+      </div>
+      {st?.state === "missing_file" && <Notice hue="danger" icon={AlertTriangle}>{st.message}</Notice>}
+      {backend === "google" && st?.state === "connected" && (
+        <ul className="mailboxes">
+          <li data-area="today">
+            <CheckCircle2 size={17} />
+            <span className="grow">{st.address || "Connected calendar"}</span>
+            <button className="btn btn-ghost btn-sm" onClick={() => confirm("Disconnect the calendar?") && disconnect.mutate()}>Disconnect</button>
+          </li>
+        </ul>
+      )}
+      {backend === "google" && st?.state === "disconnected" && (
+        <div className="row">
+          <GoogleButton onClick={() => connect.mutate()} disabled={job.data?.status === "running"} />
+          {job.data?.status === "running" && <span className="faint row" style={{ gap: 6 }}><Loader2 size={14} className="spin" /> Finish in your browser</span>}
+        </div>
+      )}
+      {job.data?.status === "error" && <Notice hue="danger" icon={AlertTriangle}>{job.data.error}</Notice>}
+    </Section>
+  );
+}
+
 function Connections({ s }: { s: Settings }) {
   const servers = s.integrations.find((i) => i.name === "mcp")?.servers ?? [];
   return (
@@ -368,7 +423,7 @@ function Model({ s }: { s: Settings }) {
 export default function SettingsPage() {
   const { tab = "company" } = useParams<{ tab: Tab }>();
   const { data, isLoading, error } = useQuery({ queryKey: ["settings"], queryFn: () => api.get<Settings>("/api/settings") });
-  const Body = { company: Company, brief: Brief, rules: Rules, email: Email, connections: Connections, faq: FaqBot, playbooks: Playbooks, customize: Customize, model: Model }[tab as Tab] ?? Company;
+  const Body = { company: Company, brief: Brief, rules: Rules, email: Email, calendar: Calendar, connections: Connections, faq: FaqBot, playbooks: Playbooks, customize: Customize, model: Model }[tab as Tab] ?? Company;
   return (
     <>
       <PageHeader area="settings" />

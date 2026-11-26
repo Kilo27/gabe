@@ -83,7 +83,7 @@ def friendly_error(e: BaseException) -> str:
     if name == "RateLimitError":
         return "Gabe's AI model is busy right now (rate limit). Wait a minute and try again."
     if "invalid_grant" in text or "Token has been expired" in text:
-        return "The Gmail connection has expired. Reconnect Gmail in Settings, then try again."
+        return "The Google sign-in has expired. Sign in with Google again in Settings (Email or Calendar), then try again."
     return f"Something went wrong: {text or name}"
 
 

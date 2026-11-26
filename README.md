@@ -23,6 +23,7 @@ gabe -m "Give me the weekly brief"  # one-shot
 gabe brief                          # today's daily briefing (saved to data/briefings/)
 gabe schedule                       # run the briefing every weekday at the configured time
 gabe auth gmail                     # connect Gmail (see docs/GMAIL_SETUP.md)
+gabe auth calendar                  # connect Google Calendar (same doc)
 gabe slack                          # run the Slack FAQ bot on its own (see docs/FAQ_BOT.md)
 gabe --unattended -m "..."          # refuses anything that needs approval
 pytest                              # tests use a scripted provider, no API calls
@@ -52,6 +53,7 @@ live in `%APPDATA%\Gabe\`, the API key in Windows Credential Manager.
   first launch copies a starter config there. `GABE_HOME` overrides the location.
 - The Anthropic API key is entered in Settings → AI model and kept in the macOS Keychain.
 - Gmail: Settings → Email → Choose file… (the Google OAuth client JSON), then Connect Gmail.
+- Google Calendar: Settings → Calendar → Sign in with Google. Today shows the day's meetings.
 - The daily brief is written on schedule while the app is open. If it was missed (the app
   was closed or crashed at brief time), it's written when the app next starts.
 - Work cut off by a restart or crash is picked up again on start. Gabe gets the original
@@ -139,6 +141,10 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design.
 - `tasks`: create, list and update tasks with owners and due dates
 - `email`: Gmail / Google Workspace, one or more mailboxes (`settings.accounts`; add them in the web app) (`search_email`, `read_email`, `draft_email`,
   `send_email`, `mark_email_read`), or an `outbox` backend that saves outgoing mail to disk without delivering it. See [docs/GMAIL_SETUP.md](docs/GMAIL_SETUP.md).
+- `calendar`: Google Calendar, or a `local` practice calendar where nobody is invited
+  (`list_events`, `find_free_time`, `block_time`, `create_event`, `update_event`,
+  `cancel_event`, `respond_to_invite`). Anything guests see asks first by default; the daily
+  brief includes today's meetings. See [docs/GMAIL_SETUP.md](docs/GMAIL_SETUP.md#google-calendar).
 - `mcp`: any [MCP](https://modelcontextprotocol.io) server's tools (see below).
 - `faq`: the FAQ bot. Upload FAQ documents (text, Markdown, Word, CSV, JSON) and Gabe answers
   customers' questions in Slack from them, in a thread, under your approval rules; what it
@@ -147,7 +153,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design.
 
 ## MCP servers
 
-Plug in existing MCP servers (Notion, Linear, Slack, Google Calendar...) with
+Plug in existing MCP servers (Notion, Linear, Slack...) with
 `pip install -e '.[mcp]'` and an `mcp` entry under `integrations:`:
 
 ```yaml
@@ -210,7 +216,9 @@ Claude Code (your own notes go in `CLAUDE.local.md`).
 `gabe brief` runs a **read-only** Gabe. It can look at tasks, notes and email, but it
 can't change or send anything. It writes the brief to the terminal and to
 `data/briefings/YYYY-MM-DD.md`, using the structure in
-`config/playbooks/daily-brief.md`. `gabe schedule` runs it at `briefing.time` on
+`config/playbooks/daily-brief.md`. With the calendar on, the day's meetings are fetched
+before the brief is written and always appear in it (any the writer leaves out are added
+under "Today's calendar"). `gabe schedule` runs it at `briefing.time` on
 `briefing.days`. Alternatively, call `gabe brief` from cron or launchd.
 
 If `briefing.email_to` is set, the finished brief is also emailed through the connected
@@ -231,7 +239,7 @@ direct reports (up to 4 levels deep). The example team in `config/team.yaml`:
 
 ```
 Gabe
-├── Operations lead ── Scheduler
+├── Operations lead ── Scheduler (tasks and calendar)
 ├── Communications ─── Inbox triage
 └── Notes keeper
 ```

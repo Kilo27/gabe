@@ -435,6 +435,14 @@ code { font-family: var(--mono); font-size: 0.88em; }
 .needs-approvals { display: flex; flex-direction: column; gap: 10px; padding: 12px 0; }
 .needs-approvals + .needs li:first-child a { border-top: 1px solid var(--line); }
 .head-count { font: 500 12px/1 var(--mono); padding: 3px 7px; border-radius: 5px; background: var(--hue); color: var(--on-fill); }
+.agenda { list-style: none; margin: 0; padding: 4px 0; }
+.agenda li { display: flex; gap: 14px; align-items: flex-start; padding: 10px 0; }
+.agenda li + li { border-top: 1px solid var(--line); }
+.agenda li.past { opacity: 0.55; }
+.agenda-time { flex: none; width: 96px; font: 500 12.5px/1.6 var(--mono); color: var(--hue-ink); padding-top: 1px; }
+.agenda-what { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.agenda-meta { display: flex; flex-wrap: wrap; gap: 10px; font-size: 13px; align-items: center; }
+.agenda-meta svg { vertical-align: -2px; }
 .caught-up { display: flex; gap: 12px; align-items: center; padding: 14px 0; }
 .caught-up svg { color: var(--hue-ink); flex: none; }
 .brief-pick { width: auto; min-height: 34px; padding-top: 4px; padding-bottom: 4px; font-size: 14px; }
