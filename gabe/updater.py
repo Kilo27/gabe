@@ -4,18 +4,18 @@ Each build records the commit it was built from (gabe/_build.py, written by the 
 scripts). The updater compares that with the repository and, when `main` has moved on,
 reinstalls Gabe on this device:
 
-    macOS app      downloads the source at the new commit, builds it with
-                   packaging/macos/build.sh (same signing identity as before, so macOS keeps
-                   Gabe's permissions), installs it where the running app lives and reopens it.
-                   Needs Python 3.10+, Node and ImageMagick on the Mac.
+    macOS app      downloads Gabe-mac.zip from the "mac-latest" release (the "Mac app"
+                   workflow replaces it on every push to `main`), swaps it in where the running
+                   app lives once Gabe has closed, and reopens it.
     Windows app    downloads GabeSetup.exe from the "Windows app" workflow's latest
                    successful run on `main`, installs it silently and reopens Gabe.
     source         a git checkout (`gabe app`, the CLI): `git pull --ff-only` and
                    `pip install -e .`, then restart Gabe yourself.
 
-The repository is private, so each device needs a GitHub token that can read it (a
-fine-grained token with Contents: read and Actions: read). It's found in the OS keychain
-(Settings → Updates), GABE_GITHUB_TOKEN / GITHUB_TOKEN / GH_TOKEN, or the GitHub CLI's login.
+Macs need no GitHub token while the repository is public. Windows downloads a workflow
+artifact, which GitHub only hands out with a token (Contents: read and Actions: read). A token is
+found in the OS keychain (Settings → Updates), GABE_GITHUB_TOKEN / GITHUB_TOKEN / GH_TOKEN, or the
+GitHub CLI's login.
 
 Settings (gabe.yaml):
 
@@ -28,15 +28,12 @@ Settings (gabe.yaml):
 
 from __future__ import annotations
 
-import glob
 import json
 import logging
 import os
 import shutil
 import subprocess
 import sys
-import tarfile
-import tempfile
 import threading
 import time
 import zipfile
@@ -53,6 +50,8 @@ DEFAULT_REPO = "Kilo27/gabe"
 DEFAULT_BRANCH = "main"
 WINDOWS_WORKFLOW = "windows.yml"
 WINDOWS_ARTIFACT = "GabeSetup"
+MAC_RELEASE = "mac-latest"
+MAC_ASSET = "Gabe-mac.zip"
 TOKEN_NAME = "GITHUB_TOKEN"  # keychain entry
 API = "https://api.github.com"
 ROOT = Path(__file__).resolve().parent.parent  # the source tree when running from a checkout
@@ -204,6 +203,23 @@ class GitHub:
                         "date": run.get("updated_at") or run.get("created_at"), "download": art["archive_download_url"]}
         raise UpdateError("No finished Windows build of the latest changes yet.")
 
+    def mac_build(self) -> dict[str, Any]:
+        """The build on the mac-latest release: build.json says which commit it is."""
+        try:
+            assets = {a["name"]: a for a in self.get(f"/releases/tags/{MAC_RELEASE}")["assets"]}
+        except LookupError:
+            raise UpdateError("No Mac builds on GitHub yet.") from None
+        if "build.json" not in assets or MAC_ASSET not in assets:
+            raise UpdateError("No finished Mac build of the latest changes yet.")
+        try:
+            r = self.http.get(assets["build.json"]["url"], headers={"Accept": "application/octet-stream"})
+            r.raise_for_status()
+            info = r.json()
+        except (httpx.HTTPError, ValueError) as e:
+            raise UpdateError(f"Couldn't read the Mac build's details: {e}") from e
+        return {"sha": info["sha"], "message": info.get("message", ""), "date": info.get("date"),
+                "download": assets[MAC_ASSET]["url"]}
+
     def compare(self, base: str, head: str) -> dict[str, Any] | None:
         """Commits `head` has that `base` doesn't. None when GitHub doesn't know `base`."""
         try:
@@ -216,8 +232,9 @@ class GitHub:
 
     def download(self, url: str, dest: Path) -> Path:
         # GitHub redirects to its file storage; httpx drops the token on the way (other host).
+        # Release assets come as files only when asked for octet-stream.
         try:
-            with self.http.stream("GET", url) as r:
+            with self.http.stream("GET", url, headers={"Accept": "application/octet-stream"}) as r:
                 if r.status_code >= 400:
                     raise UpdateError(f"Download failed ({r.status_code}).")
                 with open(dest, "wb") as f:
@@ -244,34 +261,7 @@ def _git(*args: str, cwd: Path = ROOT) -> str:
     return out.stdout
 
 
-def find_python() -> str | None:
-    """A Python 3.10+ on this Mac to build with (the app's own Python is frozen inside it)."""
-    cands = [*sorted(glob.glob("/opt/homebrew/bin/python3.1[0-9]"), reverse=True),
-             *sorted(glob.glob("/usr/local/bin/python3.1[0-9]"), reverse=True),
-             *sorted(glob.glob("/Library/Frameworks/Python.framework/Versions/3.1[0-9]/bin/python3"), reverse=True),
-             "/opt/homebrew/bin/python3", "/usr/local/bin/python3", shutil.which("python3") or ""]
-    for p in dict.fromkeys(c for c in cands if c and os.path.exists(c)):
-        try:
-            v = subprocess.run([p, "-c", "import sys; print(sys.version_info >= (3, 10))"],
-                               capture_output=True, text=True, timeout=10)
-            if v.stdout.strip() == "True":
-                return p
-        except Exception:
-            continue
-    return None
-
-
-BUILD_PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-
-
-def mac_missing_tools() -> list[str]:
-    missing = []
-    if not find_python():
-        missing.append("Python 3.10+")
-    for tool, name in (("npm", "Node"), ("magick", "ImageMagick")):
-        if not shutil.which(tool, path=BUILD_PATH):
-            missing.append(name)
-    return missing
+SCRIPT_PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 
 class Updater:
@@ -321,7 +311,6 @@ class Updater:
             "installed": {"commit": commit, "built": built_at()},
             "repo": s.repo, "branch": s.branch, "auto": s.auto and self.kind != "source",
             "token": find_github_token()[1],
-            "missing": mac_missing_tools() if self.kind == "mac_app" else [],
         }
 
     # check
@@ -332,7 +321,8 @@ class Updater:
             return self.info()
         try:
             gh = self._github()
-            latest = gh.windows_build(s.branch) if self.kind == "windows_app" else gh.head(s.branch)
+            latest = {"windows_app": lambda: gh.windows_build(s.branch), "mac_app": gh.mac_build}.get(
+                self.kind, lambda: gh.head(s.branch))()
             commit = installed_commit()
             diff = gh.compare(commit, latest["sha"]) if commit and commit != latest["sha"] else None
             if commit == latest["sha"]:
@@ -408,38 +398,27 @@ class Updater:
         self.notify("done", "Gabe updated", "Restart Gabe to use the new version.")
 
     def _install_mac(self, target: dict[str, Any]) -> None:
-        missing = mac_missing_tools()
-        if missing:
-            raise UpdateError("Updating needs " + ", ".join(missing) + " (brew install python node imagemagick).")
+        url = self.status.get("_download")
+        if not url:
+            raise UpdateError("No build to download.")
         app = app_bundle()
         if app is None:
             raise UpdateError("Couldn't find Gabe.app.")
-        src = self._fetch_source(target["sha"])
-        oauth = Path(getattr(sys, "_MEIPASS", ROOT)) / "gabe" / "defaults" / "google_oauth_client.json"
-        if oauth.exists():
-            shutil.copy(oauth, src / "packaging" / "google_oauth_client.json")
+        zpath = self._github().download(url, self.dir / MAC_ASSET)
+        new = self.dir / "new"
+        shutil.rmtree(new, ignore_errors=True)
+        out = subprocess.run(["/usr/bin/ditto", "-x", "-k", str(zpath), str(new)], capture_output=True, text=True)
+        zpath.unlink(missing_ok=True)
+        if out.returncode != 0 or not (new / "Gabe.app").is_dir():
+            raise UpdateError("The download didn't contain Gabe.app.")
         script = self.dir / "update.sh"
-        script.write_text(mac_script(python=find_python() or "python3", src=src, venv=self.dir / "venv",
-                                     dest_dir=app.parent, sha=target["sha"], result=self.dir / "result.json"))
+        script.write_text(mac_script(pid=os.getpid(), new=new / "Gabe.app", app=app, result=self.dir / "result.json"))
         script.chmod(0o755)
         self._record_attempt(target)
         self._spawn(["/bin/sh", str(script)])
-        self.notify("done", "Updating Gabe", "Gabe will close and reopen when the new version is built.")
-
-    def _fetch_source(self, sha: str) -> Path:
-        gh = self._github()
-        tmp = Path(tempfile.mkdtemp(dir=self.dir))
-        try:
-            archive = gh.download(f"{API}/repos/{gh.repo}/tarball/{sha}", tmp / "src.tar.gz")
-            with tarfile.open(archive) as tar:
-                tar.extractall(tmp / "x", filter="data")
-            top = next((tmp / "x").iterdir())
-            src = self.dir / "source"
-            shutil.rmtree(src, ignore_errors=True)
-            shutil.move(str(top), src)
-            return src
-        finally:
-            shutil.rmtree(tmp, ignore_errors=True)
+        self.notify("done", "Updating Gabe", "Gabe will close and reopen in a moment.")
+        if self.quit_app:
+            threading.Timer(2.0, self.quit_app).start()
 
     def _install_windows(self, target: dict[str, Any]) -> None:
         url = self.status.get("_download")
@@ -477,7 +456,7 @@ class Updater:
             kw["creationflags"] = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
         else:
             kw["start_new_session"] = True  # survives Gabe quitting
-            kw["env"] = {**os.environ, "PATH": BUILD_PATH}
+            kw["env"] = {**os.environ, "PATH": SCRIPT_PATH}
         subprocess.Popen(argv, **kw)
 
     # after a restart, and while a build runs
@@ -542,18 +521,25 @@ def _sh(s: str | Path) -> str:
     return "'" + str(s).replace("'", "'\\''") + "'"
 
 
-def mac_script(python: str, src: Path, venv: Path, dest_dir: Path, sha: str, result: Path) -> str:
+def mac_script(pid: int, new: Path, app: Path, result: Path) -> str:
+    old = Path(str(app) + ".old")
     return f"""#!/bin/sh
-# Written by Gabe's updater: build Gabe from {sha[:7]} and install it in {dest_dir}.
-export PATH={_sh(BUILD_PATH)}
-fail() {{ echo "update failed: $1"; printf '{{"ok": false, "error": "%s"}}' "$1" > {_sh(result)}; exit 1; }}
-cd {_sh(src)} || fail "no source"
-[ -x {_sh(venv / "bin" / "python")} ] || {_sh(python)} -m venv {_sh(venv)} || fail "venv"
-{_sh(venv / "bin" / "python")} -m pip install -q --upgrade pip || true
-{_sh(venv / "bin" / "python")} -m pip install -q -e '.[desktop,gmail,build]' || fail "pip install"
-GABE_COMMIT={sha} PYTHON={_sh(venv / "bin" / "python")} INSTALL_DIR={_sh(dest_dir)} sh packaging/macos/build.sh || fail "build"
-printf '{{"ok": true}}' > {_sh(result)}
-open {_sh(dest_dir / "Gabe.app")}
+# Written by Gabe's updater: wait for Gabe to close, swap in the new version, reopen it.
+fail() {{ echo "update failed: $1"; printf '{{"ok": false, "error": "%s"}}' "$1" > {_sh(result)}; open {_sh(app)}; exit 1; }}
+for _ in $(seq 60); do kill -0 {pid} 2>/dev/null || break; sleep 1; done
+kill {pid} 2>/dev/null || true
+codesign --verify --deep --strict {_sh(new)} || fail "signature"
+rm -rf {_sh(old)}
+mv {_sh(app)} {_sh(old)} || fail "can't replace the app"
+if ditto {_sh(new)} {_sh(app)}; then
+  rm -rf {_sh(old)} {_sh(new)}
+  xattr -dr com.apple.quarantine {_sh(app)} 2>/dev/null || true
+  printf '{{"ok": true}}' > {_sh(result)}
+  open {_sh(app)}
+else
+  rm -rf {_sh(app)}; mv {_sh(old)} {_sh(app)}
+  fail "copy"
+fi
 """
 
 

@@ -184,5 +184,5 @@ export type Updates = {
   kind: "mac_app" | "windows_app" | "source" | "package"; supported: boolean;
   installed: { commit: string | null; built: string | null };
   latest?: Commit; behind?: number | null; commits?: Commit[];
-  repo: string; branch: string; auto: boolean; token: "keychain" | "env" | "gh" | null; missing: string[];
+  repo: string; branch: string; auto: boolean; token: "keychain" | "env" | "gh" | null;
 };

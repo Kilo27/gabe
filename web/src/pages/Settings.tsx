@@ -455,7 +455,7 @@ function UpdatesTab() {
           </button>
           <span className="grow" />
           {(u.state === "available" || busy) && (
-            <button className="btn btn-primary" onClick={() => install.mutate()} disabled={busy || u.missing.length > 0}>
+            <button className="btn btn-primary" onClick={() => install.mutate()} disabled={busy}>
               {busy ? <Loader2 size={15} className="spin" /> : <Download size={15} />} {busy ? "Installing" : "Update now"}
             </button>
           )}
@@ -471,9 +471,8 @@ function UpdatesTab() {
         {!u.supported && <Notice hue="settings" icon={AlertTriangle}>This copy can't update itself.</Notice>}
         {u.state === "current" && <Notice hue="tasks" icon={CheckCircle2} title="Up to date" />}
         {u.state === "restart" && <Notice hue="tasks" icon={CheckCircle2} title="Restart Gabe to finish" />}
-        {u.state === "installing" && <Notice hue="settings" icon={Loader2} title={u.kind === "mac_app" ? "Building. Gabe will reopen." : "Installing. Gabe will reopen."} />}
+        {u.state === "installing" && <Notice hue="settings" icon={Loader2} title="Installing. Gabe will reopen." />}
         {u.error && <Notice hue="danger" icon={AlertTriangle}>{u.error}</Notice>}
-        {u.missing.length > 0 && <Notice hue="danger" icon={AlertTriangle} title={`Needs ${u.missing.join(", ")}`}><code>brew install python node imagemagick</code></Notice>}
         {u.state === "available" && (u.commits?.length ?? 0) > 0 && (
           <div className="field">
             <span>{u.behind} new</span>
@@ -491,7 +490,7 @@ function UpdatesTab() {
           ]} />
         </Section>
       )}
-      {u.supported && (
+      {u.supported && (u.kind === "windows_app" || u.token) && (
         <Section title="GitHub token">
           {u.token && <Notice hue="tasks" icon={CheckCircle2} title={{ keychain: "Saved in your keychain", env: "From the environment", gh: "From the GitHub CLI" }[u.token]} action={
             u.token === "keychain" && <button className="btn btn-sm" onClick={() => confirm("Remove the GitHub token?") && saveToken.mutate("")}>Remove</button>
