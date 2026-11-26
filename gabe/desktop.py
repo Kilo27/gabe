@@ -425,6 +425,7 @@ def main() -> int:
         width=1320, height=860, min_size=(960, 640), background_color="#1e1f22",
     )
     api.window = window
+    app.state.updater.quit_app = window.destroy  # the Windows installer replaces Gabe once it's closed
     notifier = Notifier(lambda: window)
     stop = threading.Event()
     threading.Thread(target=watch_requests, args=(app.state.gabe, notifier, stop), daemon=True,
