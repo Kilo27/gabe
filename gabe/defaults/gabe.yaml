@@ -26,6 +26,9 @@ integrations:
     settings:
       backend: gmail
       credentials_file: gmail_client_secret.json
+  - name: calendar
+    settings:
+      backend: google      # google | local (practice: nobody is invited)
   - claude_code            # Gabe can change its own setup via Claude Code, with your OK (if installed)
   # FAQ bot: answers customers' questions in Slack from FAQ documents you upload
   # (Settings → FAQ bot, or drop .txt/.md/.docx/.csv/.json files in faq/). See docs/FAQ_BOT.md.

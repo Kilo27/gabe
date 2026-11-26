@@ -17,27 +17,31 @@ SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 MAX_BODY_CHARS = 20_000
 
 
-def load_credentials(credentials_file: Path, token_file: Path, interactive: bool = False):
+def load_credentials(credentials_file: Path, token_file: Path, interactive: bool = False,
+                     scopes: list[str] | None = None, not_signed_in: str | None = None):
+    """Google OAuth credentials from `token_file`, refreshed as needed; with `interactive`, a
+    browser sign-in when there are none. Gmail's scopes by default (the calendar passes its own)."""
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
 
+    scopes = scopes or SCOPES
     creds = None
     if token_file.exists():
-        creds = Credentials.from_authorized_user_file(str(token_file), SCOPES)
+        creds = Credentials.from_authorized_user_file(str(token_file), scopes)
     if creds and creds.expired and creds.refresh_token:
         creds.refresh(Request())
         token_file.write_text(creds.to_json())
     if creds and creds.valid:
         return creds
     if not interactive:
-        raise RuntimeError("Gmail isn't signed in. Use Sign in with Google in Settings → Email.")
+        raise RuntimeError(not_signed_in or "Gmail isn't signed in. Use Sign in with Google in Settings → Email.")
     if not credentials_file.exists():
         raise FileNotFoundError(
             f"Google sign-in isn't set up in this copy of Gabe (no OAuth client at {credentials_file})."
         )
     from google_auth_oauthlib.flow import InstalledAppFlow
 
-    flow = InstalledAppFlow.from_client_secrets_file(str(credentials_file), SCOPES)
+    flow = InstalledAppFlow.from_client_secrets_file(str(credentials_file), scopes)
     # Google's page opens in the system browser (it blocks sign-in inside embedded app windows).
     creds = flow.run_local_server(
         port=0,

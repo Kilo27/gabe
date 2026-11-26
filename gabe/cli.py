@@ -168,7 +168,35 @@ def _usage(cfg, args) -> int:
     return 0
 
 
+def _auth_calendar(cfg) -> int:
+    from gabe.integrations.calendar import calendar_ctx, calendar_paths, calendar_spec
+    from gabe.integrations.gcal_backend import SCOPES, GoogleCalendarClient, build_service
+    from gabe.integrations.gmail_backend import load_credentials
+
+    spec = calendar_spec(cfg)
+    if not spec or spec.settings.get("backend", "google") != "google":
+        print("The calendar integration isn't set to `backend: google` in config.", file=sys.stderr)
+        return 1
+    creds_path, token_path = calendar_paths(calendar_ctx(cfg))
+    from googleapiclient.errors import HttpError
+
+    creds = load_credentials(creds_path, token_path, interactive=True, scopes=SCOPES)
+    try:
+        address = GoogleCalendarClient(lambda: build_service(creds)).address()
+    except HttpError as e:
+        print(f"Signed in and saved the token to {token_path}, but Google Calendar rejected the test call:", file=sys.stderr)
+        print(f"  {e.reason}", file=sys.stderr)
+        if e.status_code == 403 and "has not been used" in str(e.reason):
+            print("Enable the Google Calendar API in your Google Cloud project (APIs & Services → Library),", file=sys.stderr)
+            print("wait a minute or two, then run `gabe auth calendar` again.", file=sys.stderr)
+        return 1
+    print(f"Google Calendar authorised for {address}. Token saved to {token_path}.")
+    return 0
+
+
 def _auth(cfg, args) -> int:
+    if args.service == "calendar":
+        return _auth_calendar(cfg)
     from gabe.integrations import IntegrationContext
     from gabe.integrations.email import gmail_paths
     from gabe.integrations.gmail_backend import build_service, load_credentials
@@ -267,7 +295,7 @@ def main(argv: list[str] | None = None) -> int:
     usage.add_argument("--since", help="Only calls on or after this date (YYYY-MM-DD, UTC)")
     usage.add_argument("--by", default="user,task,model", help="Group by any of user,task,model,agent (default: user,task,model)")
     auth = sub.add_parser("auth", help="Authorise an integration")
-    auth.add_argument("service", choices=["gmail"])
+    auth.add_argument("service", choices=["gmail", "calendar"])
     sub.add_parser("check", help="Check the config folder (after editing it by hand or with Claude Code)")
     sub.add_parser("slack", help="Run the Slack FAQ bot on its own (no desktop app)")
     sub.add_parser("app", help="Open the Gabe desktop app from source")
