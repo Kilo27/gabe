@@ -28,7 +28,8 @@ from typing import Any, Callable
 
 from gabe.audit import AuditLog
 from gabe.config import Config
-from gabe.faq.answer import ANSWERED, NO_FAQ, NOT_A_QUESTION, NOT_COVERED, FaqResponder, looks_like_question
+from gabe.faq.answer import (ANSWERED, NO_FAQ, NOT_A_QUESTION, NOT_COVERED, FaqResponder, cant_answer,
+                             looks_like_question)
 from gabe.faq.settings import FaqSettings, SlackSettings
 from gabe.integrations._store import JsonStore
 from gabe.policy import Approver, Decision, Policy, deny_all
@@ -362,48 +363,62 @@ class SlackFaqBot:
             return "error"
 
         if reply.outcome == ANSWERED:
-            return self._post_answer(cfg, s, base, reply, qlog)
+            used = [e.question or e.answer[:80] for e in reply.used]
+            return self._post(cfg, base, reply.text, qlog, ANSWERED, used=used)
         if reply.outcome == NOT_A_QUESTION and not mentioned:
             return NOT_A_QUESTION  # chatter: not logged
         asked = looks_like_question(question)
         if reply.outcome == NOT_COVERED or (asked and (reply.outcome == NO_FAQ or mentioned)):
-            self._escalate(cfg, s, base)
-            qlog.add(**base, outcome="unanswered")
-            return "unanswered"
+            told_team = self._escalate(cfg, s, base)
+            if not s.say_so:
+                qlog.add(**base, outcome="unanswered")
+                return "unanswered"
+            text = s.holding_reply or reply.redirect or cant_answer(settings.where_to_look)
+            if told_team and not s.holding_reply:
+                text += "\n\nI've passed your question on to the team."
+            return self._post(cfg, base, text, qlog, "unanswered")
         return reply.outcome
 
-    def _post_answer(self, cfg: Config, s: SlackSettings, base: dict[str, Any], reply, qlog: QuestionLog) -> str:
-        args = {"channel": base["channel_name"], "question": base["text"], "reply": reply.text}
-        used = [e.question or e.answer[:80] for e in reply.used]
+    def _post(self, cfg: Config, base: dict[str, Any], text: str, qlog: QuestionLog, outcome: str,
+              used: list[str] | None = None) -> str:
+        """Post a reply in the customer's thread, if the approval rules allow it. `outcome` is what
+        to log once it's posted: answered, or unanswered (saying there's no answer)."""
+        args = {"channel": base["channel_name"], "question": base["text"], "reply": text}
+        extra = {"used": used} if used is not None else {}
         audit = AuditLog(cfg.data_dir / "audit.jsonl")
         decision = Policy.from_config(cfg.policy).decide(REPLY_TOOL)
 
         def record(outcome: str, error: bool = False) -> None:
             audit.record(agent=BOT_NAME, chain=BOT_NAME, tool=REPLY_TOOL.name, input=args, outcome=outcome, error=error)
 
+        # A question with no answer stays "unanswered" in the log whatever happens to the message.
+        failed = (lambda o: outcome) if outcome != ANSWERED else (lambda o: o)
         if decision is Decision.DENY:
             record("denied_by_policy", True)
-            qlog.add(**base, outcome="blocked", reply=reply.text, used=used)
-            return "blocked"
+            qlog.add(**base, outcome=failed("blocked"), reply=text, posted=False, **extra)
+            return failed("blocked")
         if decision is Decision.ASK:
             verdict = self.approver(REPLY_TOOL, args)
             if not verdict:
                 record("declined_by_user", True)
-                qlog.add(**base, outcome="declined", reply=reply.text, used=used, note=getattr(verdict, "note", ""))
-                return "declined"
+                qlog.add(**base, outcome=failed("declined"), reply=text, posted=False,
+                         note=getattr(verdict, "note", ""), **extra)
+                return failed("declined")
         try:
             self.web.chat_postMessage(channel=base["channel"], thread_ts=base["thread_ts"], text=args["reply"],
                                       unfurl_links=False, unfurl_media=False)
         except Exception as e:
             record("error", True)
-            qlog.add(**base, outcome="error", reply=args["reply"], used=used, error=f"{type(e).__name__}: {e}")
-            return "error"
+            qlog.add(**base, outcome=failed("error"), reply=args["reply"], posted=False,
+                     error=f"{type(e).__name__}: {e}", **extra)
+            return failed("error")
         record("ok")
-        qlog.add(**base, outcome=ANSWERED, reply=args["reply"], used=used, edited=args["reply"] != reply.text)
-        return ANSWERED
+        qlog.add(**base, outcome=outcome, reply=args["reply"], posted=True, edited=args["reply"] != text, **extra)
+        return outcome
 
-    def _escalate(self, cfg: Config, s: SlackSettings, base: dict[str, Any]) -> None:
-        """No answer in the FAQ: tell the team, make a task, and/or tell the customer someone will reply."""
+    def _escalate(self, cfg: Config, s: SlackSettings, base: dict[str, Any]) -> bool:
+        """No answer in the FAQ: tell the team and/or make a task. True if either happened."""
+        told = False
         link = ""
         try:
             link = _ok(self.web.chat_getPermalink(channel=base["channel"], message_ts=base["message_ts"])).get("permalink", "")
@@ -416,6 +431,7 @@ class SlackFaqBot:
                 self.web.chat_postMessage(
                     channel=self.channel_id(s.notify_channel), unfurl_links=False,
                     text=f"Unanswered question from <@{base['user']}> in {where}:\n{quoted}" + (f"\n{link}" if link else ""))
+                told = True
             except Exception as e:
                 log.warning("couldn't post to %s: %s", s.notify_channel, e)
         if s.create_task:
@@ -431,11 +447,8 @@ class SlackFaqBot:
                 "source": "slack",
             }
             JsonStore(cfg.data_dir / "tasks" / "tasks.json", {"tasks": []}).update(lambda d: d["tasks"].append(task))
-        if s.holding_reply:
-            try:
-                self.web.chat_postMessage(channel=base["channel"], thread_ts=base["thread_ts"], text=s.holding_reply)
-            except Exception as e:
-                log.warning("couldn't post the holding reply: %s", e)
+            told = True
+        return told
 
 
 class SlackService:

@@ -27,8 +27,10 @@ A: Click "Forgot password" on the sign-in page.
 """
 
 
-def said(reply=None, used=(1,), why="not_covered"):
+def said(reply=None, used=(1,), why="not_covered", redirect=None):
     body = {"reply": reply, "used": list(used)} if reply else {"reply": None, "why": why}
+    if redirect:
+        body["redirect"] = redirect
     return StepResult(json.dumps(body), [], "done")
 
 
@@ -241,7 +243,8 @@ def test_unanswered_questions_go_to_the_team(slack_cfg):
     assert b.handle(msg("do you sell gift cards?")) == "unanswered"
     notify, holding = web.posts
     assert notify["channel"] == "CTEAM" and "gift cards" in notify["text"] and "https://acme.slack.com/p1" in notify["text"]
-    assert holding == {"channel": "CHELP", "thread_ts": "1.1", "text": "Thanks! Someone from the team will reply here."}
+    assert (holding["channel"], holding["thread_ts"], holding["text"]) == (
+        "CHELP", "1.1", "Thanks! Someone from the team will reply here.")  # a fixed reply is used as it is
     task = json.loads((load().data_dir / "tasks" / "tasks.json").read_text())["tasks"][0]
     assert task["owner"] == "Sam" and task["source"] == "slack" and "gift cards" in task["notes"]
     assert b.handle(msg("thanks all, great launch", ts="2")) == NOT_A_QUESTION and len(web.posts) == 2
@@ -388,3 +391,37 @@ def test_lists_and_joins_channels(slack_cfg):
         "CHELP": "member", "CTEAM": "joined", "GVIP": "needs_invite", "#nope": "not_found"}
     assert web.joined == ("CTEAM",)
     assert b.handle(msg("refund?", channel="CTEAM")) != "ignored"  # every channel it's in by default
+
+
+def test_says_when_it_cant_answer_and_where_to_look(tmp_path, slack_cfg):
+    # The model words it, using only the places the company listed.
+    s = _settings(tmp_path, where_to_look="Help centre: https://help.acme.example")
+    p = ScriptedProvider([said(why="not_covered", redirect="I don't have that one. Try https://help.acme.example.")])
+    r = FaqResponder(s, p).answer("do you sell gift cards?")
+    assert r.outcome == NOT_COVERED and r.redirect == "I don't have that one. Try https://help.acme.example."
+    assert "<where_to_look>" in p.systems[0][0] and "https://help.acme.example" in p.systems[0][0]
+    # No model call (nothing matched) or nothing usable from it: a plain message with the same pointers.
+    big = _settings(tmp_path, where_to_look="Email help@acme.example", full_context_chars=0)
+    r = FaqResponder(big, ScriptedProvider([])).answer("what's the weather on mars?")
+    assert r.redirect == "Sorry, I don't have the answer to that. You might find it here:\nEmail help@acme.example"
+    r = FaqResponder(s, ScriptedProvider([said(why="not_covered")])).answer("gift cards?")
+    assert r.redirect.startswith("Sorry, I don't have the answer to that.")
+
+    # In Slack it's posted in the thread, under the approval rules, saying the team has it when they do.
+    load, web = slack_cfg({"unanswered": {"create_task": True}}), FakeSlack()
+    b, _ = bot(load, web, [said(why="not_covered", redirect="I don't know that, sorry.")])
+    assert b.handle(msg("do you sell gift cards?")) == "unanswered"
+    assert web.posts[0]["thread_ts"] == "1.1"
+    assert web.posts[0]["text"] == "I don't know that, sorry.\n\nI've passed your question on to the team."
+    q = question_log(load()).recent()[0]
+    assert q["outcome"] == "unanswered" and q["posted"] is True
+
+    asked = []
+    load, web = slack_cfg(policy={}), FakeSlack()
+    b, _ = bot(load, web, [said(why="not_covered", redirect="Not sure, sorry.")],
+               approver=lambda tool, args: asked.append(args["reply"]) or False)
+    assert b.handle(msg("gift cards?")) == "unanswered" and asked == ["Not sure, sorry."] and web.posts == []
+
+    load, web = slack_cfg({"unanswered": {"say_so": False}}), FakeSlack()
+    b, _ = bot(load, web, [said(why="not_covered", redirect="Not sure.")])
+    assert b.handle(msg("gift cards?")) == "unanswered" and web.posts == []

@@ -153,18 +153,18 @@ export type AgentsData = { day: string; today: string; agents: Agent[]; timeline
 
 export type FaqChannel = { id: string; name: string; private: boolean; member: boolean; members: number | null };
 export type FaqDoc = { name: string; entries: number; questions: number; size: number; updated: string; error: string };
-export type FaqAnswer = { outcome: "answered" | "not_covered" | "not_a_question" | "no_faq"; text: string | null; used: { id: string; question: string; source: string }[] };
+export type FaqAnswer = { outcome: "answered" | "not_covered" | "not_a_question" | "no_faq"; text: string | null; redirect: string | null; used: { id: string; question: string; source: string }[] };
 export type FaqQuestion = {
   id: string; ts: string; channel: string; channel_name: string; user: string; user_name: string; text: string;
   outcome: string; reply?: string; used?: string[]; error?: string; note?: string;
 };
 // `enabled: false` comes with no other fields.
 export type Faq = {
-  enabled: boolean; model: string; tone: string; documents: FaqDoc[];
+  enabled: boolean; model: string; tone: string; where_to_look: string; documents: FaqDoc[];
   slack: {
     enabled: boolean; channels: string[]; direct_messages: boolean; answer: "everyone" | "external"; staff: string[];
     follow_ups: boolean; per_user_per_hour: number; notify_channel: string; create_task: boolean; task_owner: string;
-    holding_reply: string; bot_token_set: boolean; app_token_set: boolean;
+    say_so: boolean; holding_reply: string; bot_token_set: boolean; app_token_set: boolean;
   };
   status: { state: "off" | "missing_tokens" | "connecting" | "connected" | "error"; error?: string; workspace?: string };
   reply_rule: Decision; questions: FaqQuestion[]; manifest: string; desktop: boolean;

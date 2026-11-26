@@ -1073,6 +1073,7 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
             "enabled": True,
             "model": s.model,
             "tone": s.tone,
+            "where_to_look": s.where_to_look,
             "documents": [d.summary() for d in FaqLibrary(s.folder).documents()],
             "slack": {k: v for k, v in vars(sl).items() if k not in ("bot_token", "app_token")}
                      | {"bot_token_set": bool(sl.bot_token), "app_token_set": bool(sl.app_token)},
@@ -1181,12 +1182,14 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
             notify_channel=str(sl.get("notify_channel", current.slack.notify_channel)).strip(),
             create_task=bool(sl.get("create_task", current.slack.create_task)),
             task_owner=str(sl.get("task_owner", current.slack.task_owner)).strip(),
+            say_so=bool(sl.get("say_so", current.slack.say_so)),
             holding_reply=str(sl.get("holding_reply", current.slack.holding_reply)).strip(),
         )
 
         def fn(st):
             st["model"] = model
             st["tone"] = str(payload.get("tone", current.tone)).strip()
+            st["where_to_look"] = str(payload.get("where_to_look", current.where_to_look)).strip()
             old = st.get("slack") or {}
             st["slack"] = {**{k: v for k, v in old.items() if k in ("bot_token", "app_token")}, **new.to_dict()}
 
