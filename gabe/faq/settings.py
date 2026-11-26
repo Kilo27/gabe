@@ -6,6 +6,9 @@
           folder: faq                  # FAQ documents, relative to gabe.yaml
           model: haiku                 # haiku | sonnet | opus, or a model id
           tone: Friendly and brief.
+          where_to_look: |             # where to send people when the FAQ has no answer
+            Help centre: https://help.example.com
+            Email support@example.com
           retriever: keyword           # or "package.module:Class" (see gabe/faq/search.py)
           slack:
             enabled: true
@@ -14,7 +17,7 @@
             answer: everyone           # everyone | external (guests and other workspaces)
             staff: [U0123ABC]          # never answered
             follow_ups: true
-            unanswered: {notify_channel: "#support", create_task: true, task_owner: Support}
+            unanswered: {say_so: true, notify_channel: "#support", create_task: true, task_owner: Support}
 
 Slack tokens come from SLACK_BOT_TOKEN / SLACK_APP_TOKEN (the desktop app keeps them in
 the keychain), or `bot_token` / `app_token` here, which may be "${ENV_VAR}".
@@ -59,7 +62,8 @@ class SlackSettings:
     notify_channel: str = ""
     create_task: bool = False
     task_owner: str = ""
-    holding_reply: str = ""  # posted when there's no answer; empty: say nothing
+    say_so: bool = True  # tell the customer when the FAQ has no answer (and where to look)
+    holding_reply: str = ""  # a fixed message to use instead of Gabe's own; empty: Gabe writes it
     bot_token: str = ""
     app_token: str = ""
 
@@ -78,6 +82,7 @@ class SlackSettings:
             notify_channel=str(un.get("notify_channel") or "").strip(),
             create_task=bool(un.get("create_task", False)),
             task_owner=str(un.get("task_owner") or "").strip(),
+            say_so=bool(un.get("say_so", True)),
             holding_reply=str(un.get("reply") or "").strip(),
             bot_token=expand(raw.get("bot_token")) or os.environ.get(BOT_TOKEN_ENV, ""),
             app_token=expand(raw.get("app_token")) or os.environ.get(APP_TOKEN_ENV, ""),
@@ -90,7 +95,7 @@ class SlackSettings:
             "answer": self.answer, "staff": self.staff, "follow_ups": self.follow_ups,
             "per_user_per_hour": self.per_user_per_hour,
             "unanswered": {"notify_channel": self.notify_channel, "create_task": self.create_task,
-                           "task_owner": self.task_owner, "reply": self.holding_reply},
+                           "task_owner": self.task_owner, "say_so": self.say_so, "reply": self.holding_reply},
         }
 
 
@@ -99,6 +104,7 @@ class FaqSettings:
     folder: Path
     model: str = "haiku"
     tone: str = ""
+    where_to_look: str = ""  # places to point people to when the FAQ can't answer
     retriever: str = "keyword"
     max_matches: int = 6
     # A library up to this size goes to the model whole (cached); bigger ones are searched first.
@@ -120,6 +126,7 @@ class FaqSettings:
             folder=folder if folder.is_absolute() else (root / folder).resolve(),
             model=str(raw.get("model") or "haiku"),
             tone=str(raw.get("tone") or "").strip(),
+            where_to_look=str(raw.get("where_to_look") or "").strip(),
             retriever=str(raw.get("retriever") or "keyword"),
             max_matches=int(raw.get("max_matches") or 6),
             full_context_chars=int(raw.get("full_context_chars", 40_000)),

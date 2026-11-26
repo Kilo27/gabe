@@ -56,11 +56,19 @@ Every answer is in the Activity log.
 
 ## When the FAQ has no answer
 
-Any combination of:
+Gabe says so, in the thread, rather than staying quiet or guessing (**Tell the customer**, on by
+default). It points them to where they might find the answer: the most relevant place you list
+under **Where to look** (a help centre, an email address, a channel...), or a related topic the
+FAQ does cover. It never makes up a link or contact that isn't written there; with nothing listed
+it just says it doesn't have that answer. Prefer your own wording? Set a **Fixed reply** and it's
+used as it is. Like answers, this message follows the approval rules.
+
+The team can hear about it too, in any combination:
 
 - **Tell this channel**: posts the question, who asked and a link in a team channel.
 - **Add a task**: a task on the Tasks screen, for the owner you choose.
-- **Reply to the customer**: a fixed message such as "Thanks, someone from the team will reply here."
+
+When either is on, Gabe adds "I've passed your question on to the team." to its reply.
 
 The **Questions** list shows every question the bot handled and what happened. Filter by
 **No answer** to see what's missing from your FAQ.
@@ -76,6 +84,9 @@ integrations:
       folder: faq                  # relative to gabe.yaml
       model: haiku                 # haiku | sonnet | opus
       tone: Friendly and brief.
+      where_to_look: |             # where to point people when the FAQ has no answer
+        Help centre: https://help.acme.example
+        Email support@acme.example
       retriever: keyword           # or "your_package.module:ClassName"
       max_matches: 6               # entries shown to the model when the FAQ is large
       full_context_chars: 40000    # an FAQ up to this size is given to the model whole
@@ -88,10 +99,11 @@ integrations:
         follow_ups: true
         per_user_per_hour: 10
         unanswered:
+          say_so: true             # tell the customer there's no answer, and where to look
           notify_channel: "#support-team"
           create_task: true
           task_owner: Support
-          reply: ""
+          reply: ""                # a fixed message instead of Gabe's own wording
         # bot_token: "${ACME_SLACK_BOT_TOKEN}"   # instead of SLACK_BOT_TOKEN / the keychain
         # app_token: "${ACME_SLACK_APP_TOKEN}"
 policy:
