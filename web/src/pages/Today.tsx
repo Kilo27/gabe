@@ -4,7 +4,8 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, type AuditRow, type Job, type Session } from "../api";
+import { api, type Approval, type AuditRow, type Job, type Session } from "../api";
+import { ApprovalCard } from "../components/ApprovalCard";
 import { useOverview } from "../components/Shell";
 import { Empty, Markdown, Notice, PageHeader, Skeleton, SkeletonList, useToast } from "../components/ui";
 import { greeting, longDate, plural } from "../lib/format";
@@ -56,12 +57,18 @@ export function AskBox({ autoFocus, compact }: { autoFocus?: boolean; compact?: 
   );
 }
 
+const INLINE_APPROVALS = 3;
+
 function NeedsYou() {
   const { data, isLoading } = useOverview();
+  const approvals = useQuery({ queryKey: ["approvals"], queryFn: () => api.get<Approval[]>("/api/approvals"), refetchInterval: 4000 });
   if (isLoading || !data) return <div className="panel"><SkeletonList rows={3} /></div>;
   const t = data.tasks;
+  const pending = (approvals.data ?? []).filter((a) => a.status === "pending");
+  const inline = pending.slice(0, INLINE_APPROVALS);
   const rows: { hue: string; icon: any; text: string; to: string; cta: string }[] = [];
-  if (data.approvals_pending) rows.push({ hue: "approvals", icon: ShieldCheck, text: `${plural(data.approvals_pending, "thing")} ${data.approvals_pending === 1 ? "is" : "are"} waiting for your OK`, to: "/approvals", cta: "Review" });
+  const rest = data.approvals_pending - inline.length;
+  if (rest > 0) rows.push({ hue: "approvals", icon: ShieldCheck, text: inline.length ? `${plural(rest, "more thing")} waiting for your OK` : `${plural(rest, "thing")} ${rest === 1 ? "is" : "are"} waiting for your OK`, to: "/approvals", cta: "Review" });
   if (t.overdue) rows.push({ hue: "danger", icon: AlertTriangle, text: `${plural(t.overdue, "task")} ${t.overdue === 1 ? "is" : "are"} overdue`, to: "/tasks?due=overdue", cta: "See them" });
   if (t.due_today) rows.push({ hue: "tasks", icon: Clock, text: `${plural(t.due_today, "task")} due today`, to: "/tasks?due=today", cta: "See them" });
   if (t.blocked) rows.push({ hue: "danger", icon: OctagonAlert, text: `${plural(t.blocked, "task")} ${t.blocked === 1 ? "is" : "are"} blocked`, to: "/tasks?status=blocked", cta: "Unblock" });
@@ -73,15 +80,23 @@ function NeedsYou() {
       <div className="panel-head" data-area="approvals">
         <span className="swatch" />
         <h2 id="needs-you">Needs you</h2>
+        {pending.length + rows.length > 0 && <span className="head-count">{data.approvals_pending + t.overdue}</span>}
+        <span className="spacer" />
+        <Link to="/approvals" className="btn btn-ghost btn-sm">Approvals <ArrowRight size={15} /></Link>
       </div>
-      {rows.length === 0 ? (
+      {inline.length > 0 && (
+        <div className="needs-approvals">
+          {inline.map((a) => <ApprovalCard key={a.id} a={a} compact />)}
+        </div>
+      )}
+      {rows.length === 0 && inline.length === 0 ? (
         <div className="caught-up" data-area="tasks">
           <CheckCircle2 size={22} />
           <div>
             <strong>You're all caught up.</strong>
           </div>
         </div>
-      ) : (
+      ) : rows.length > 0 && (
         <ul className="needs">
           {rows.map((r) => (
             <li key={r.text} data-area={r.hue}>
