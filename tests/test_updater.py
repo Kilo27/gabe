@@ -31,8 +31,14 @@ def github(routes, seen=None):
     return httpx.MockTransport(handler)
 
 
+API = "https://api.github.com/repos/o/r"
 ROUTES = {
     "/repos/o/r/commits/main": commit(NEW, "Add the thing"),
+    "/repos/o/r/releases/tags/mac-latest": {"assets": [
+        {"name": "Gabe.dmg", "url": f"{API}/releases/assets/7"},
+        {"name": "Gabe-mac.zip", "url": f"{API}/releases/assets/2"},
+        {"name": "build.json", "url": f"{API}/releases/assets/1"}]},
+    "/repos/o/r/releases/assets/1": {"sha": NEW, "message": "Add the thing", "date": "2026-11-26T10:00:00Z"},
     f"/repos/o/r/compare/{OLD}...{NEW}": {"ahead_by": 2, "behind_by": 0,
                                          "commits": [commit("c" * 40, "First"), commit(NEW, "Add the thing")]},
 }
@@ -78,7 +84,7 @@ def test_unknown_build_offers_update_but_not_automatically(make):
 
 
 def test_bad_token_is_a_plain_error(make):
-    st = make(routes={"/repos/o/r/commits/main": 401}).check()
+    st = make(routes={"/repos/o/r/releases/tags/mac-latest": 401}).check()
     assert st["state"] == "error" and "token" in st["error"]
 
 
@@ -123,37 +129,39 @@ def test_windows_install_unpacks_installer_and_quits(make, monkeypatch, tmp_path
     assert json.loads(u.attempt_file.read_text())["sha"] == NEW
 
 
-def test_mac_install_needs_build_tools(make, monkeypatch):
-    monkeypatch.setattr(upd, "mac_missing_tools", lambda: ["Node"])
-    u = make()
-    with pytest.raises(UpdateError, match="Node"):
-        u.install()
-    assert u.status["state"] == "error"
+def test_mac_uses_the_published_build(make):
+    seen = []
+    u = make(seen=seen)
+    st = u.check()
+    assert st["state"] == "available" and st["latest"]["message"] == "Add the thing" and st["behind"] == 2
+    assert u.status["_download"] == f"{API}/releases/assets/2"
+    assert seen[1].headers["accept"] == "application/octet-stream"
 
 
-def test_mac_install_builds_from_the_new_commit(make, monkeypatch, tmp_path):
-    import tarfile
+def test_mac_without_a_build_yet(make):
+    st = make(routes={"/repos/o/r/releases/tags/mac-latest": {"assets": []}}).check()
+    assert st["state"] == "error" and "Mac build" in st["error"]
 
+
+def test_mac_install_swaps_in_the_download_and_quits(make, monkeypatch, tmp_path):
     buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        data = b"#!/bin/sh\n"
-        info = tarfile.TarInfo("o-r-bbbbbbb/packaging/macos/build.sh")
-        info.size = len(data)
-        tar.addfile(info, io.BytesIO(data))
-    routes = {**ROUTES, f"/repos/o/r/tarball/{NEW}": buf.getvalue()}
-    monkeypatch.setattr(upd, "mac_missing_tools", lambda: [])
-    monkeypatch.setattr(upd, "find_python", lambda: "/opt/py3")
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("Gabe.app/Contents/Info.plist", b"<plist/>")
+    routes = {**ROUTES, "/repos/o/r/releases/assets/2": buf.getvalue()}
     app = tmp_path / "Apps" / "Gabe.app"
     monkeypatch.setattr(upd, "app_bundle", lambda: app)
+    monkeypatch.setattr(upd.threading, "Timer", lambda t, fn: type("T", (), {"start": lambda self: fn()})())
     u = make(routes=routes)
-    spawned = []
+    spawned, quit = [], []
+    u.quit_app = lambda: quit.append(1)
     monkeypatch.setattr(u, "_spawn", lambda argv: spawned.append(argv))
-    u.install()
-    assert (u.dir / "source" / "packaging" / "macos" / "build.sh").exists()
+    st = u.install()
+    assert st["state"] == "installing" and quit == [1]
+    assert (u.dir / "new" / "Gabe.app" / "Contents" / "Info.plist").exists()
     script = (u.dir / "update.sh").read_text()
-    assert f"GABE_COMMIT={NEW}" in script and f"INSTALL_DIR='{tmp_path / 'Apps'}'" in script
-    assert f"open '{app}'" in script
+    assert f"ditto '{u.dir / 'new' / 'Gabe.app'}' '{app}'" in script and f"open '{app}'" in script
     assert spawned == [["/bin/sh", str(u.dir / "update.sh")]]
+    assert json.loads(u.attempt_file.read_text())["sha"] == NEW
 
 
 def test_settle_reports_success_after_restart(make, monkeypatch):

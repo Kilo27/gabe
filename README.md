@@ -12,7 +12,22 @@ lives in configuration, playbooks and pluggable integrations, not in the core.
 > The goal is to run fully on-prem on GLM 5.3 served from a local GPU box. The provider
 > layer is already in place for that.
 
-## Quick start
+## Install on a Mac
+
+Paste this into Terminal:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Kilo27/gabe/main/install.sh | sh
+```
+
+It downloads the latest build, puts Gabe in Applications and opens it. Nothing else to install;
+Gabe keeps itself up to date after that. Needs an Apple silicon Mac (M1 or later).
+
+Or download **Gabe.dmg** from the [mac-latest release](https://github.com/Kilo27/gabe/releases/tag/mac-latest)
+and drag Gabe to Applications. Until builds are notarized (see below), macOS blocks the first
+open: System Settings → Privacy & Security → **Open Anyway**. The Terminal command avoids that.
+
+## Quick start (from source)
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
@@ -36,9 +51,22 @@ window; that service only accepts calls from its own window (a fresh token each 
 
 ```bash
 pip install -e '.[desktop,gmail,build]'
-packaging/macos/build.sh        # → dist/macos/Gabe.app and Gabe.dmg, installed to /Applications (needs Node, ImageMagick)
+packaging/macos/build.sh        # → dist/macos/Gabe.app, Gabe.dmg, Gabe-mac.zip, installed to /Applications (needs Node)
 gabe app                        # run it from source instead
 ```
+
+The **Mac app** GitHub Actions workflow builds it on every PR and push to `main`; pushes to `main`
+replace the files on the `mac-latest` release, which the installer and installed copies download.
+Optional repo secrets:
+
+- `MACOS_CERT_P12` / `MACOS_CERT_PASSWORD`: the signing identity. Run
+  `packaging/macos/upload_signing_cert.sh` once to use your "Gabe Local Signing" certificate, so
+  every build has the same signature and updates keep Gabe's Keychain and notification
+  permissions. Without it builds are ad-hoc signed and macOS asks again after each update.
+- A Developer ID certificate in those secrets plus `APPLE_ID`, `APPLE_TEAM_ID` and
+  `APPLE_APP_PASSWORD` (an app-specific password): builds are notarized and the .dmg opens with
+  no warning.
+- `GOOGLE_OAUTH_CLIENT_JSON`: Sign in with Google.
 
 Windows: `packaging\windows\build.ps1` on a Windows PC (needs Python, Node, Inno Setup 6) gives
 `dist\windows\GabeSetup.exe` (installs per user, no admin) and the app folder
@@ -83,13 +111,12 @@ Each copy of Gabe keeps itself up to date from this repository's `main` branch (
 Updates, or `gabe update` in a checkout). It checks every hour and, by default, installs as soon
 as nothing is running; "Ask first" waits for **Update now**.
 
-- **Mac:** downloads the source at the new commit, builds it with `packaging/macos/build.sh`
-  (same "Gabe Local Signing" identity, so permissions stay), installs it where the app is and
-  reopens it. Needs Python 3.10+, Node and ImageMagick (`brew install python node imagemagick`).
+- **Mac:** downloads `Gabe-mac.zip` from the `mac-latest` release, swaps it in where the app is
+  and reopens it. No token or build tools needed.
 - **Windows:** installs `GabeSetup.exe` from the newest successful **Windows app** build of
   `main`, silently, then reopens Gabe.
 - **Checkout:** `git pull --ff-only` and `pip install -e .`; restart Gabe yourself.
-- The repository is private, so each device needs a GitHub token that can read it: a
+- **Windows** needs a GitHub token (GitHub only serves workflow files to signed-in users): a
   fine-grained token with **Contents: read** and **Actions: read**, pasted into Settings →
   Updates (kept in the keychain). `GITHUB_TOKEN`/`GH_TOKEN` or a `gh auth login` also work.
 - Builds record their commit in `gabe/_build.py`; that's what's compared with GitHub. A build
