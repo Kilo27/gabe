@@ -277,6 +277,41 @@ def _slack(cfg, args) -> int:
         return 0
 
 
+def _update(args) -> int:
+    import tempfile
+    from pathlib import Path
+
+    import yaml
+
+    from gabe.updater import UpdateError, Updater, UpdateSettings
+
+    path = Path(args.config or os.environ.get("GABE_CONFIG", "config/gabe.yaml"))
+    raw = yaml.safe_load(path.read_text()) if path.exists() else {}
+    up = Updater(Path(tempfile.gettempdir()) / "gabe-updates", lambda: UpdateSettings.from_raw(raw),
+                 notify=lambda kind, title, body: print(f"{title}. {body}".strip()))
+    st = up.check()
+    if st.get("error"):
+        print(st["error"], file=sys.stderr)
+        return 1
+    if st["state"] == "unsupported":
+        print("This copy of Gabe isn't a git checkout or an app, so it can't update itself.", file=sys.stderr)
+        return 1
+    if st["state"] == "current":
+        print(f"Up to date ({(st['installed']['commit'] or '')[:7]}).")
+        return 0
+    for c in st.get("commits") or []:
+        print(f"  {c['sha'][:7]} {c['message']}")
+    print(f"Update available: {st['latest']['sha'][:7]} {st['latest']['message']}")
+    if args.check:
+        return 0
+    try:
+        up.install()
+    except UpdateError as e:
+        print(e, file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     load_dotenv()
     ap = argparse.ArgumentParser(prog="gabe", description="Gabe, your AI chief of staff.")
@@ -299,6 +334,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("check", help="Check the config folder (after editing it by hand or with Claude Code)")
     sub.add_parser("slack", help="Run the Slack FAQ bot on its own (no desktop app)")
     sub.add_parser("app", help="Open the Gabe desktop app from source")
+    upd = sub.add_parser("update", help="Update this checkout from GitHub (git pull + pip install)")
+    upd.add_argument("--check", action="store_true", help="Only say whether there's an update")
     web = sub.add_parser("web", help="Serve the app UI to a browser (for development)")
     web.add_argument("--host", default="127.0.0.1", help="Address to listen on (default: this computer only)")
     web.add_argument("--port", type=int, default=8765)
@@ -309,6 +346,8 @@ def main(argv: list[str] | None = None) -> int:
         from gabe.desktop import main as desktop_main
 
         return desktop_main()
+    if args.command == "update":
+        return _update(args)
     if args.command == "check":  # before load_config, which may be what's broken
         from gabe.check import check_config
 

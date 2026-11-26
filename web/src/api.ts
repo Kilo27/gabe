@@ -176,3 +176,13 @@ export type Faq = {
   status: { state: "off" | "missing_tokens" | "connecting" | "connected" | "error"; error?: string; workspace?: string };
   reply_rule: Decision; questions: FaqQuestion[]; manifest: string; desktop: boolean;
 };
+
+export type Commit = { sha: string; message: string; date: string };
+export type Updates = {
+  state: "idle" | "current" | "available" | "installing" | "restart" | "error" | "unsupported";
+  checked: string | null; error: string | null;
+  kind: "mac_app" | "windows_app" | "source" | "package"; supported: boolean;
+  installed: { commit: string | null; built: string | null };
+  latest?: Commit; behind?: number | null; commits?: Commit[];
+  repo: string; branch: string; auto: boolean; token: "keychain" | "env" | "gh" | null; missing: string[];
+};

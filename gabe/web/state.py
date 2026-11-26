@@ -493,6 +493,11 @@ class Sessions:
         self.send(s["id"], prompt, auto=True)
         return s["id"]
 
+    def busy(self) -> bool:
+        """Some conversation is mid-reply."""
+        with self._guard:
+            return any(v.running for v in self._live.values())
+
     def reset_idle(self) -> None:
         """Drop every idle conversation's agent so the next message rebuilds it (e.g. new API key)."""
         with self._guard:

@@ -21,6 +21,10 @@ if (-not (Test-Path "packaging\google_oauth_client.json")) {
   Write-Warning "packaging\google_oauth_client.json is missing; Sign in with Google won't work in this build."
 }
 
+Write-Host "-> build stamp"
+$Commit = if ($env:GABE_COMMIT) { $env:GABE_COMMIT } else { (git rev-parse HEAD 2>$null) }
+Run $Py @("-m", "gabe.updater", "stamp", "$Commit")  # gabe\_build.py: the commit the updater compares with GitHub
+
 Write-Host "-> front end"
 Push-Location web
 try { Run npm @("ci", "--silent"); Run npm @("run", "build", "--silent") } finally { Pop-Location }

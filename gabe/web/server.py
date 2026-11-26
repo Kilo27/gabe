@@ -31,6 +31,7 @@ from gabe.integrations._store import JsonStore
 from gabe.policy import Declined, Policy
 from gabe.providers import make_provider
 from gabe.tools.registry import Risk, Tool, ToolRegistry
+from gabe.updater import TOKEN_NAME, UpdateError, Updater, UpdateSettings
 from gabe.web.state import WebState, check_args, friendly_error, new_id, now
 
 STATIC = Path(__file__).parent / "static"
@@ -46,7 +47,7 @@ def faq_provider(cfg):
 
 def create_app(config_path: str | Path, token: str | None = None, desktop: bool = False,
                resume_when: "threading.Event | None" = None, run_schedules: bool = True,
-               run_slack: bool = True) -> FastAPI:
+               run_slack: bool = True, run_updates: bool | None = None) -> FastAPI:
     """`token`: when set, every /api call must carry it (X-Gabe-Token). The desktop app sets a
     fresh one per launch so other programs and web pages on this computer can't use the API."""
     state = WebState(Path(config_path))
@@ -108,6 +109,22 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
 
     if run_slack:
         threading.Thread(target=slack_bot, daemon=True, name="slack-faq").start()
+
+    def idle() -> bool:
+        """Nothing would be cut off by Gabe closing for an update."""
+        with state.live_lock:
+            working = any(a.get("working") for a in state.live.values())
+        jobs = any(j.get("status") == "running" for j in state.jobs.values())
+        return not (working or jobs or state.sessions.busy())
+
+    # Gabe keeps itself up to date from GitHub (gabe/updater.py). The desktop app checks in the
+    # background; `quit_app` is set once its window exists, so an installer can replace it.
+    updater = Updater(state.config().data_dir / "updates",
+                      settings=lambda: UpdateSettings.from_raw(state.raw_config()),
+                      notify=lambda kind, title, body: state.notify(kind, title, body))
+    app.state.updater = updater
+    if desktop if run_updates is None else run_updates:
+        threading.Thread(target=updater.run_forever, args=(idle,), daemon=True, name="updates").start()
 
     if token:
         import hmac
@@ -927,6 +944,52 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
         state.sessions.reset_idle()  # rebuild agents so they pick up the new key
         person_audit("edit_settings", {"section": "model", "action": "api key " + ("set" if key else "removed")})
         return {"key_set": bool(key)}
+
+    # -- updates -----------------------------------------------------------------
+
+    @app.get("/api/updates")
+    def updates():
+        return updater.public()
+
+    @app.post("/api/updates/check")
+    def check_updates():
+        return updater.check()
+
+    @app.post("/api/updates/install")
+    def install_update():
+        try:
+            out = updater.install()
+        except UpdateError as e:
+            bad(str(e))
+        person_audit("install_update", {"commit": (out.get("latest") or {}).get("sha", "")})
+        return out
+
+    @app.put("/api/updates/settings")
+    def update_settings(payload: dict = Body(...)):
+        def fn(raw):
+            u = raw.setdefault("updates", {}) or {}
+            if "auto" in payload:
+                u["auto"] = bool(payload["auto"])
+            raw["updates"] = u
+
+        state.edit_config(fn)
+        person_audit("edit_settings", {"section": "updates"})
+        return updater.public()
+
+    @app.put("/api/updates/token")
+    def update_token(payload: dict = Body(...)):
+        """A GitHub token that can read the repository, kept in the OS keychain."""
+        tok = str(payload.get("token", "")).strip()
+        if tok and (len(tok) < 20 or any(c.isspace() for c in tok)):
+            bad("That doesn't look like a GitHub token.")
+        try:
+            from gabe.desktop import set_secret
+
+            set_secret(TOKEN_NAME, tok or None)
+        except Exception as e:
+            bad(f"Couldn't save the token to the keychain: {e}")
+        person_audit("edit_settings", {"section": "updates", "action": "token " + ("set" if tok else "removed")})
+        return updater.check() if tok else updater.public()
 
     @app.put("/api/settings/email-mode")
     def email_mode(payload: dict = Body(...)):

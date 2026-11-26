@@ -18,3 +18,4 @@ packaging/google_oauth_client.json
 web/*.tsbuildinfo
 config/CLAUDE.md
 config/CLAUDE.local.md
+gabe/_build.py

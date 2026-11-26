@@ -77,6 +77,26 @@ live in `%APPDATA%\Gabe\`, the API key in Windows Credential Manager.
   Gabe's notification and Keychain permissions. Other Macs still need a Developer ID
   (`SIGN_ID`) and a notarized .dmg.
 
+### Updates
+
+Each copy of Gabe keeps itself up to date from this repository's `main` branch (Settings →
+Updates, or `gabe update` in a checkout). It checks every hour and, by default, installs as soon
+as nothing is running; "Ask first" waits for **Update now**.
+
+- **Mac:** downloads the source at the new commit, builds it with `packaging/macos/build.sh`
+  (same "Gabe Local Signing" identity, so permissions stay), installs it where the app is and
+  reopens it. Needs Python 3.10+, Node and ImageMagick (`brew install python node imagemagick`).
+- **Windows:** installs `GabeSetup.exe` from the newest successful **Windows app** build of
+  `main`, silently, then reopens Gabe.
+- **Checkout:** `git pull --ff-only` and `pip install -e .`; restart Gabe yourself.
+- The repository is private, so each device needs a GitHub token that can read it: a
+  fine-grained token with **Contents: read** and **Actions: read**, pasted into Settings →
+  Updates (kept in the keychain). `GITHUB_TOKEN`/`GH_TOKEN` or a `gh auth login` also work.
+- Builds record their commit in `gabe/_build.py`; that's what's compared with GitHub. A build
+  that's ahead of `main` (a feature branch) isn't replaced. `updates:` in `gabe.yaml` sets
+  `repo`, `branch`, `auto` and `check_every_hours`. The install log is
+  `data/updates/update.log`.
+
 Home is **Agents**: a live map of who hands work to whom, each agent's actions today on a
 timeline, and controls per agent (give it a job, pause/resume, set what it may do, approve
 its requests). "Request an agent" has Gabe propose a new specialist for a role; you edit and

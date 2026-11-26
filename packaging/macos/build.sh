@@ -14,6 +14,10 @@ if [ ! -f packaging/google_oauth_client.json ]; then
   echo "warning: packaging/google_oauth_client.json is missing; Sign in with Google won't work in this build." >&2
 fi
 
+echo "→ build stamp"
+COMMIT="${GABE_COMMIT:-$(git rev-parse HEAD 2>/dev/null || true)}"
+"$PY" -m gabe.updater stamp "$COMMIT"   # gabe/_build.py: the commit the updater compares with GitHub
+
 echo "→ front end"
 (cd web && npm ci --silent && npm run build --silent)
 

@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, ExternalLink, Loader2, Plus, SquareTerminal, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Download, ExternalLink, Loader2, Plus, RefreshCw, SquareTerminal, Trash2 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { NavLink, useParams } from "react-router-dom";
 import { GoogleButton } from "../components/GoogleButton";
-import { api, native, type Decision, type Job, type Settings } from "../api";
+import { api, native, type Decision, type Job, type Settings, type Updates } from "../api";
 import { Field, Markdown, Notice, PageHeader, Segmented, SkeletonList, useToast } from "../components/ui";
 import { DECISION_WORDS, RISK, humanize, tool } from "../lib/tools";
 import FaqBot from "./FaqBot";
@@ -19,6 +19,7 @@ const TABS = [
   ["playbooks", "Playbooks"],
   ["customize", "Customize"],
   ["model", "API key"],
+  ["updates", "Updates"],
 ] as const;
 type Tab = (typeof TABS)[number][0];
 const DAYS = [["mon", "Mon"], ["tue", "Tue"], ["wed", "Wed"], ["thu", "Thu"], ["fri", "Fri"], ["sat", "Sat"], ["sun", "Sun"]];
@@ -420,10 +421,95 @@ function Model({ s }: { s: Settings }) {
   );
 }
 
+const short = (sha?: string | null) => (sha ? sha.slice(0, 7) : "unknown");
+const when = (iso?: string | null) => (iso ? new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "");
+
+function UpdatesTab() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const { data: u } = useQuery({
+    queryKey: ["updates"],
+    queryFn: () => api.get<Updates>("/api/updates"),
+    refetchInterval: (q) => (q.state.data?.state === "installing" ? 3000 : false),
+  });
+  const set = (d: Updates) => qc.setQueryData(["updates"], d);
+  const onError = (e: Error) => toast(e.message, "danger");
+  const check = useMutation({ mutationFn: () => api.post<Updates>("/api/updates/check"), onSuccess: set, onError });
+  const install = useMutation({ mutationFn: () => api.post<Updates>("/api/updates/install"), onSuccess: set, onError });
+  const auto = useMutation({ mutationFn: (v: boolean) => api.put<Updates>("/api/updates/settings", { auto: v }), onSuccess: set, onError });
+  const [token, setToken] = useState("");
+  const saveToken = useMutation({
+    mutationFn: (t: string) => api.put<Updates>("/api/updates/token", { token: t }),
+    onSuccess: (d) => { setToken(""); set(d); toast("Token saved", "settings"); },
+    onError,
+  });
+  useEffect(() => { if (u && !u.checked && u.supported) check.mutate(); }, [u?.checked]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!u) return <div className="panel"><SkeletonList rows={3} /></div>;
+  const busy = u.state === "installing" || install.isPending;
+  return (
+    <div className="stack">
+      <Section title="Version" foot={u.supported && (
+        <>
+          <button className="btn" onClick={() => check.mutate()} disabled={check.isPending || busy}>
+            <RefreshCw size={15} className={check.isPending ? "spin" : undefined} /> Check now
+          </button>
+          <span className="grow" />
+          {(u.state === "available" || busy) && (
+            <button className="btn btn-primary" onClick={() => install.mutate()} disabled={busy || u.missing.length > 0}>
+              {busy ? <Loader2 size={15} className="spin" /> : <Download size={15} />} {busy ? "Installing" : "Update now"}
+            </button>
+          )}
+        </>
+      )}>
+        <table className="table">
+          <tbody>
+            <tr><th>Installed</th><td><code>{short(u.installed.commit)}</code> <span className="faint">{when(u.installed.built)}</span></td></tr>
+            {u.latest && <tr><th>Latest</th><td><code>{short(u.latest.sha)}</code> {u.latest.message} <span className="faint">{when(u.latest.date)}</span></td></tr>}
+            <tr><th>Source</th><td><code>{u.repo}</code> · <code>{u.branch}</code></td></tr>
+          </tbody>
+        </table>
+        {!u.supported && <Notice hue="settings" icon={AlertTriangle}>This copy can't update itself.</Notice>}
+        {u.state === "current" && <Notice hue="tasks" icon={CheckCircle2} title="Up to date" />}
+        {u.state === "restart" && <Notice hue="tasks" icon={CheckCircle2} title="Restart Gabe to finish" />}
+        {u.state === "installing" && <Notice hue="settings" icon={Loader2} title={u.kind === "mac_app" ? "Building. Gabe will reopen." : "Installing. Gabe will reopen."} />}
+        {u.error && <Notice hue="danger" icon={AlertTriangle}>{u.error}</Notice>}
+        {u.missing.length > 0 && <Notice hue="danger" icon={AlertTriangle} title={`Needs ${u.missing.join(", ")}`}><code>brew install python node imagemagick</code></Notice>}
+        {u.state === "available" && (u.commits?.length ?? 0) > 0 && (
+          <div className="field">
+            <span>{u.behind} new</span>
+            <ul className="stack" style={{ gap: 4 }}>
+              {u.commits!.map((c) => <li key={c.sha}><code className="faint">{short(c.sha)}</code> {c.message}</li>)}
+            </ul>
+          </div>
+        )}
+      </Section>
+      {u.supported && u.kind !== "source" && (
+        <Section title="Automatic updates">
+          <Segmented label="Automatic updates" value={u.auto ? "on" : "off"} onChange={(v) => auto.mutate(v === "on")} options={[
+            { value: "on", label: "Install when idle" },
+            { value: "off", label: "Ask first" },
+          ]} />
+        </Section>
+      )}
+      {u.supported && (
+        <Section title="GitHub token">
+          {u.token && <Notice hue="tasks" icon={CheckCircle2} title={{ keychain: "Saved in your keychain", env: "From the environment", gh: "From the GitHub CLI" }[u.token]} action={
+            u.token === "keychain" && <button className="btn btn-sm" onClick={() => confirm("Remove the GitHub token?") && saveToken.mutate("")}>Remove</button>
+          } />}
+          <form className="row" style={{ flexWrap: "nowrap" }} onSubmit={(e) => { e.preventDefault(); if (token.trim()) saveToken.mutate(token.trim()); }}>
+            <input className="input grow" type="password" autoComplete="off" spellCheck={false} placeholder={u.token ? "Replace token" : "github_pat_…"} value={token} onChange={(e) => setToken(e.target.value)} aria-label="GitHub token" />
+            <button className="btn btn-primary" disabled={!token.trim() || saveToken.isPending}>Save</button>
+          </form>
+        </Section>
+      )}
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const { tab = "company" } = useParams<{ tab: Tab }>();
   const { data, isLoading, error } = useQuery({ queryKey: ["settings"], queryFn: () => api.get<Settings>("/api/settings") });
-  const Body = { company: Company, brief: Brief, rules: Rules, email: Email, calendar: Calendar, connections: Connections, faq: FaqBot, playbooks: Playbooks, customize: Customize, model: Model }[tab as Tab] ?? Company;
+  const Body = { company: Company, brief: Brief, rules: Rules, email: Email, calendar: Calendar, connections: Connections, faq: FaqBot, playbooks: Playbooks, customize: Customize, model: Model, updates: UpdatesTab }[tab as Tab] ?? Company;
   return (
     <>
       <PageHeader area="settings" />
