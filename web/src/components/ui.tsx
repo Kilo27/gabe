@@ -15,7 +15,7 @@ export function PageHeader({ area, title, children, actions }: { area: Area; tit
   return (
     <header className="page-head" data-area={area}>
       <div className="page-tile" aria-hidden>
-        <Icon size={26} strokeWidth={2.2} />
+        <Icon size={22} strokeWidth={2.1} />
       </div>
       <div className="page-titles">
         <h1>{title ?? a.label}</h1>

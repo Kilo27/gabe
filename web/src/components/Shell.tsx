@@ -42,7 +42,7 @@ function NavItem({ id, onClick, short }: { id: Area; onClick?: () => void; short
   return (
     <NavLink to={a.path} end={a.path === "/"} data-area={id} onClick={onClick}>
       <span className="nav-tile" aria-hidden>
-        <Icon size={short ? 16 : 17} strokeWidth={2.3} />
+        <Icon size={short ? 16 : 15} strokeWidth={2.2} />
       </span>
       <span>{short ? a.short : a.label}</span>
       {!!count && (
@@ -148,16 +148,8 @@ export function Shell({ children }: { children: ReactNode }) {
     <div className="shell">
       <aside className="rail" aria-label="Main">
         <div className="brand">
-          <div className="brand-mark" aria-hidden>
-            <span style={{ background: "var(--today)" }} />
-            <span style={{ background: "var(--approvals)" }} />
-            <span style={{ background: "var(--tasks)" }} />
-            <span style={{ background: "var(--ask)" }} />
-          </div>
-          <div>
-            <div className="brand-name">{data?.assistant ?? "Gabe"}</div>
-            <div className="brand-co">{data?.company ? `Chief of staff · ${data.company}` : "Your chief of staff"}</div>
-          </div>
+          <div className="brand-name">{data?.assistant ?? "Gabe"}</div>
+          <div className="brand-co">{data?.company ?? "Your chief of staff"}</div>
         </div>
         <nav className="nav">
           {AREAS.slice(0, 4).map((a) => <NavItem key={a.id} id={a.id} />)}
@@ -188,7 +180,7 @@ export function Shell({ children }: { children: ReactNode }) {
       <nav className="tabbar" aria-label="Main">
         {PRIMARY.map((id) => <NavItem key={id} id={id} short />)}
         <button onClick={() => setMore((m) => !m)} aria-expanded={more} className={moreActive ? "active" : ""} style={moreActive ? { color: "var(--rail-ink)" } : undefined}>
-          <span className="nav-tile" style={{ background: "#3a3b40", color: "var(--rail-ink)" }} aria-hidden>
+          <span className="nav-tile more-tile" aria-hidden>
             <MoreHorizontal size={16} />
           </span>
           More

@@ -39,6 +39,7 @@ integrations:
   #     folder: faq
   #     model: haiku            # haiku | sonnet | opus
   #     tone: Friendly and brief.
+  #     where_to_look: "Help centre: https://help.example.com"   # where to point people the FAQ can't help
   #     slack:
   #       enabled: true         # tokens: SLACK_BOT_TOKEN / SLACK_APP_TOKEN (the app keeps them in the keychain)
   #       channels: []          # empty: every channel the bot has been added to

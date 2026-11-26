@@ -159,7 +159,12 @@ function TryIt({ f }: { f: Faq }) {
           )}
         </div>
       ) : (
-        <Notice hue="approvals" icon={MessageCircleQuestion} title={r.outcome === "not_a_question" ? "Nothing to answer" : "Not in the FAQ"} />
+        <>
+          <Notice hue="approvals" icon={MessageCircleQuestion} title={r.outcome === "not_a_question" ? "Nothing to answer" : "Not in the FAQ"} />
+          {r.redirect && r.outcome !== "not_a_question" && f.slack.say_so && (
+            <div className="letter"><div className="letter-body">{f.slack.holding_reply || r.redirect}</div></div>
+          )}
+        </>
       ))}
     </Section>
   );
@@ -285,15 +290,15 @@ function SlackSection({ f }: { f: Faq }) {
     enabled: s.enabled, answer: s.answer, channels: s.channels, staff: s.staff.join(", "),
     direct_messages: s.direct_messages, follow_ups: s.follow_ups, per_user_per_hour: String(s.per_user_per_hour),
     notify_channel: s.notify_channel, create_task: s.create_task, task_owner: s.task_owner, holding_reply: s.holding_reply,
-    tone: f.tone, model: f.model,
+    say_so: s.say_so, where_to_look: f.where_to_look, tone: f.tone, model: f.model,
   });
   const set = (patch: Partial<typeof form>) => setForm({ ...form, ...patch });
   const [joined, setJoined] = useState<Record<string, string>>({});
   const qc = useQueryClient();
   const save = useFaqMutation(async () => {
     const r = await api.put<Faq & { joined?: Record<string, string> }>("/api/faq/settings", {
-      tone: form.tone, model: form.model,
-      slack: { ...form, staff: list(form.staff), per_user_per_hour: Number(form.per_user_per_hour) || 0, tone: undefined, model: undefined },
+      tone: form.tone, model: form.model, where_to_look: form.where_to_look,
+      slack: { ...form, staff: list(form.staff), per_user_per_hour: Number(form.per_user_per_hour) || 0, tone: undefined, model: undefined, where_to_look: undefined },
     });
     setJoined(r.joined ?? {});
     qc.invalidateQueries({ queryKey: ["faq-channels"] });
@@ -344,12 +349,21 @@ function SlackSection({ f }: { f: Faq }) {
       <Field label="Tone"><input className="input" value={form.tone} onChange={(e) => set({ tone: e.target.value })} placeholder="Friendly and brief" /></Field>
       <div className="field">
         <span>When the FAQ has no answer</span>
+        <Check label="Tell the customer" checked={form.say_so} onChange={(v) => set({ say_so: v })} />
+        {form.say_so && (
+          <>
+            <Field label="Where to look">
+              <textarea className="textarea" rows={3} value={form.where_to_look} onChange={(e) => set({ where_to_look: e.target.value })}
+                placeholder={"Help centre: https://help.example.com\nEmail support@example.com"} />
+            </Field>
+            <Field label="Fixed reply"><input className="input" value={form.holding_reply} onChange={(e) => set({ holding_reply: e.target.value })} placeholder="Gabe writes it" /></Field>
+          </>
+        )}
         <div className="form-grid">
           <Field label="Tell this channel"><input className="input" value={form.notify_channel} onChange={(e) => set({ notify_channel: e.target.value })} placeholder="#support-team" /></Field>
           <Field label="Task owner"><input className="input" value={form.task_owner} onChange={(e) => set({ task_owner: e.target.value })} disabled={!form.create_task} placeholder="Unassigned" /></Field>
         </div>
         <Check label="Add a task" checked={form.create_task} onChange={(v) => set({ create_task: v })} />
-        <Field label="Reply to the customer"><input className="input" value={form.holding_reply} onChange={(e) => set({ holding_reply: e.target.value })} placeholder="Say nothing" /></Field>
       </div>
     </Section>
   );
@@ -417,7 +431,7 @@ export default function FaqBot() {
     <div className="stack">
       <Documents f={data} />
       <TryIt f={data} />
-      <SlackSection key={JSON.stringify(data.slack) + data.tone + data.model} f={data} />
+      <SlackSection key={JSON.stringify(data.slack) + data.tone + data.model + data.where_to_look} f={data} />
       <Questions f={data} />
     </div>
   );

@@ -4,9 +4,10 @@ Gabe web app (`web/`). Operate-mode product UI for non-technical admin staff.
 
 ## Principle
 
-Colour is the map. Each area of Gabe owns one hue and uses it everywhere it appears:
-nav tile, page header tile, panel swatch, chips, activity dots and the page's primary
-button. Grey carries everything else.
+A ledger, colour-coded. Pages are white and ruled like an operations log; each area of Gabe
+owns one hue and uses it everywhere it appears: nav tile, page header tile, the rule under each
+section head, row tiles, chips, activity dots and the page's primary button. Ink and hairlines
+carry everything else. (Chosen from the mockups in `docs/mockups/ui-refresh.html`, option A2.)
 
 ## Colour
 
@@ -28,9 +29,9 @@ Tokens live in `web/src/styles.css` (`:root`, dark overrides under
 - Fills always carry `--on-fill` (near-black) text.
 - Each hue has an `-ink` variant for text on grey (darker in light theme, the fill itself in dark).
 - `data-area="<area>"` on any element sets `--hue`, `--hue-ink`, `--hue-soft`; components read those.
-- Base: light theme is light grey content (`--bg` #e4e5e8, panels #f2f2f4) beside a dark grey
-  rail (#1e1f22); dark theme is dark grey throughout. Theme follows the system; Light / Auto /
-  Dark switch in the rail.
+- Base: light theme is white throughout (`--bg` #ffffff, ink #1b2533, hairlines #e4e7eb) with a
+  white rail split off by a 1px rule; dark theme is near-black (#15181d) with the same structure.
+  Theme follows the system; Light / Auto / Dark switch in the rail.
 
 Agents have colours too: Gabe blue, the briefing writer yellow, each specialist the colour of
 the work it mostly does (tasks green, email cyan…), assigned in config order so existing
@@ -44,14 +45,22 @@ dot per action (coloured by action type; hollow red ring when it was stopped).
 
 ## Type
 
-Figtree Variable (self-hosted via `@fontsource-variable`), one family. Page titles 30/800,
-panel titles 16.5/750, body 15/1.5, meta 13.5. Tabular numerals everywhere.
+IBM Plex Sans Variable for everything (self-hosted via `@fontsource-variable/ibm-plex-sans`);
+IBM Plex Mono (`--mono`) only for times, counts, dates and code. Page titles 28/600 over a 2px
+ink rule; section heads 13/600 uppercase, tracked 0.05em, over a 2px rule in the area hue; body
+14.5/1.5; meta 13. Tabular numerals everywhere.
 
 ## Components
 
-Panels (14px radius, 1px line, no nesting), chips (pill, soft or solid), segmented
-controls, side sheets for create/edit (no modals), toasts bottom-right. Buttons: default
-outlined, `btn-primary` in the area hue, `btn-go` green for approve.
+Panels are open, ruled sections (no box): a head underlined in its hue, rows below separated by
+hairlines, flush with the head. Objects you act on stay as bordered cards (8px radius, no
+shadow): approvals (pink 2px outline while waiting), agents, board cards, notes. Chips are small
+5px-radius labels, soft or solid. Segmented controls, side sheets for create/edit (no modals),
+toasts bottom-right. Buttons: 6px radius, default outlined, `btn-primary` in the area hue,
+`btn-go` green for approve.
+
+Today's "Needs you" shows up to three waiting approvals and questions inline, decided in place;
+the rest are summary rows with a hue tile.
 
 ## Copy
 
@@ -60,5 +69,5 @@ Tool names, IDs and config keys are always translated (`web/src/lib/tools.ts`).
 
 ## Layout
 
-Rail (248px) + content (max 1240px). Under 900px the rail becomes a bottom tab bar
+Rail (232px) + content (max 1240px). Under 900px the rail becomes a bottom tab bar
 (Today, Ask, Approve, Tasks, More).
