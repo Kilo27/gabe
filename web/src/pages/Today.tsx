@@ -39,7 +39,7 @@ export function AskBox({ autoFocus, compact }: { autoFocus?: boolean; compact?: 
             if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
           }}
         />
-        <div className="row" style={{ justifyContent: "space-between" }}>
+        <div className="row between">
           <span />
           <button className="btn btn-primary" disabled={!text.trim() || start.isPending}>
             {start.isPending ? <Loader2 size={17} className="spin" /> : <Send size={16} />} Send
@@ -172,12 +172,12 @@ function Brief() {
       </div>
       <div className="panel-pad">
         {running && (
-          <div style={{ marginBottom: 16 }}>
+          <div className="mb-16">
             <Notice hue="today" icon={Loader2} title="Writing a fresh brief…" />
           </div>
         )}
         {job.data?.status === "error" && (
-          <div style={{ marginBottom: 16 }}>
+          <div className="mb-16">
             <Notice hue="danger" icon={AlertTriangle} title="The brief couldn't be written">{job.data.error}</Notice>
           </div>
         )}
@@ -237,7 +237,7 @@ function Meetings() {
       {isLoading ? <SkeletonList rows={3} /> : data?.status.state === "error" ? (
         <div className="panel-pad"><Notice hue="danger" icon={AlertTriangle}>{data.status.message}</Notice></div>
       ) : events.length === 0 ? (
-        <p className="muted" style={{ padding: "14px 0" }}>Nothing on.</p>
+        <p className="muted pad-y-16">Nothing on.</p>
       ) : (
         <ul className="agenda">
           {events.map((e) => {
@@ -283,7 +283,7 @@ function Recent() {
         <Link to="/activity" className="btn btn-ghost btn-sm">See all <ArrowRight size={15} /></Link>
       </div>
       {isLoading ? <SkeletonList rows={3} /> : !data?.rows.length ? (
-        <p className="muted" style={{ padding: 18 }}>Nothing yet.</p>
+        <p className="muted pad-16">Nothing yet.</p>
       ) : (
         <ul className="activity-list">
           {data.rows.map((r, i) => <ActivityRow key={i} row={r} compact />)}

@@ -70,16 +70,21 @@ Playbooks · Advanced (API key and usage, Claude Code, Updates). Old tab address
 IBM Plex Sans Variable for everything (self-hosted via `@fontsource-variable/ibm-plex-sans`);
 IBM Plex Mono (`--mono`) only for times, counts, dates and code. Page titles 28/600 over a 2px
 ink rule; section heads 13/600 uppercase, tracked 0.05em, over a 2px rule in the area hue; body
-14.5/1.5; meta 13. Tabular numerals everywhere.
+14.5/1.5; meta 13. Tabular numerals everywhere. Six sizes only, as tokens: `--text-xs` 12,
+`--text-sm` 13, `--text-md` 14.5, `--text-lg` 17, `--text-xl` 22, `--text-2xl` 28.
 
 ## Components
 
 Panels are open, ruled sections (no box): a head underlined in its hue, rows below separated by
-hairlines, flush with the head. Objects you act on stay as bordered cards (8px radius, no
-shadow): approvals (pink 2px outline while waiting), agents, board cards, notes. Chips are small
-5px-radius labels, soft or solid. Segmented controls, side sheets for create/edit (no modals),
-toasts bottom-right. Buttons: 6px radius, default outlined, `btn-primary` in the area hue,
-`btn-go` green for approve.
+hairlines, flush with the head. Objects you act on share one bordered card rule (`.card`; raised fill, 1px line,
+`--radius` 8px, no shadow): approvals (pink 2px outline while waiting), letters, board cards,
+notes (tinted lilac), the agent map, mailbox lists. Chips are small `--radius-sm` labels, soft or
+solid. Floating surfaces (menus, the agent settings card, tiles) use `--radius-lg` 12px. Three
+radii only: 5 / 8 / 12. Segmented controls, side sheets for create/edit (no modals),
+toasts bottom-right. Buttons: `--radius-sm`, default outlined, `btn-primary` in the area hue,
+`btn-go` green for approve. Spacing comes from a 4 / 8 / 12 / 16 / 24 scale; one-off spacing
+uses the utility classes at the end of `styles.css`, not inline styles. Inline styles are only for
+values computed at runtime (map positions, timeline offsets).
 
 Today is the home screen (`/`). "Needs you" shows up to three waiting approvals and questions
 inline, decided in place; the rest are summary rows with a hue tile. Its count is the approvals

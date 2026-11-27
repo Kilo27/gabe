@@ -27,7 +27,7 @@ function Steps({ m }: { m: Message }) {
         Gabe took {steps.length} {steps.length === 1 ? "step" : "steps"}
         {problems > 0 && <span className="steps-problem"> · {problems} didn't go through</span>}
         {resumed && <span className="steps-resumed"> · picked up after a restart</span>}
-        <ChevronDown size={15} style={{ rotate: open ? "180deg" : "0deg", transition: "rotate 200ms" }} />
+        <ChevronDown size={15} className="chev" data-open={open} />
       </button>
       {open && (
         <ol className="steps-list">
@@ -136,8 +136,8 @@ function Thread({ id }: { id: string }) {
           m.role === "user" ? (
             <div key={m.id} className="msg msg-user" data-area="ask">
               <div className="bubble">
-                {m.auto && <div style={{ marginBottom: 6, fontSize: 13, opacity: 0.8 }}>Sent automatically</div>}
-                {m.task && <div style={{ marginBottom: 6 }}><span className="bubble-task"><CheckSquare size={13} /> {m.task.title}</span></div>}
+                {m.auto && <div className="mb-8 bubble-auto">Sent automatically</div>}
+                {m.task && <div className="mb-8"><span className="bubble-task"><CheckSquare size={13} /> {m.task.title}</span></div>}
                 {m.text}
               </div>
               <span className="faint">{when(m.ts)}</span>
@@ -145,7 +145,7 @@ function Thread({ id }: { id: string }) {
           ) : (
             <div key={m.id} className="msg msg-gabe">
               <div className="avatar" aria-hidden>G</div>
-              <div className="grow stack" style={{ gap: 10 }}>
+              <div className="grow stack gap-12">
                 <Steps m={m} />
                 {m.activity.filter((a) => a.kind === "approval").map((a) => {
                   const ap = a.kind === "approval" ? byId.get(a.approval_id) : undefined;
@@ -161,7 +161,7 @@ function Thread({ id }: { id: string }) {
                 {m.text && (m.status === "error" ? (
                   <Notice hue="danger" icon={AlertTriangle}>
                     {m.text}
-                    {m.fix_session && <div style={{ marginTop: 8 }}><Link to={`/ask/${m.fix_session}`}>Gabe is fixing this</Link></div>}
+                    {m.fix_session && <div className="mt-8"><Link to={`/ask/${m.fix_session}`}>Gabe is fixing this</Link></div>}
                   </Notice>
                 ) : <Markdown text={m.text} />)}
               </div>
@@ -213,7 +213,7 @@ export default function Chat() {
             <Link to="/ask" className="btn btn-primary btn-sm"><Plus size={15} /> New</Link>
           </div>
           {sessions.isLoading ? <SkeletonList rows={3} /> : !sessions.data?.length ? (
-            <p className="muted" style={{ padding: 18 }}>No conversations yet.</p>
+            <p className="muted pad-16">No conversations yet.</p>
           ) : (
             <ul>
               {sessions.data.map((s) => (
@@ -235,7 +235,7 @@ export default function Chat() {
         ) : (
           <div className="thread thread-new">
             <div className="new-convo">
-              <div className="empty-tile" data-area="ask" style={{ background: "var(--ask)", color: "var(--on-fill)" }}><MessageCircle size={26} /></div>
+              <div className="empty-tile empty-tile-solid" data-area="ask"><MessageCircle size={26} /></div>
               <h2>What can Gabe do for you?</h2>
             </div>
             <AskBox autoFocus />

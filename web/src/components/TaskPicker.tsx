@@ -49,7 +49,7 @@ export function TaskPicker({ value, onChange, disabled }: { value: Task | null; 
             <input className="input" autoFocus placeholder="Find a task" value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
           <ul>
-            {tasks.length === 0 && <li className="faint" style={{ padding: 12 }}>No open tasks{q ? " match" : ""}.</li>}
+            {tasks.length === 0 && <li className="faint pad-12">No open tasks{q ? " match" : ""}.</li>}
             {tasks.map((t) => (
               <li key={t.id}>
                 <button type="button" aria-pressed={value?.id === t.id} onClick={() => { onChange(t); setOpen(false); setQ(""); }}>

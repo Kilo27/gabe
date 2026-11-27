@@ -193,7 +193,7 @@ export function Shell({ children }: { children: ReactNode }) {
       </nav>
       {more && (
         <>
-          <div className="sheet-backdrop" style={{ zIndex: 35 }} onClick={() => setMore(false)} />
+          <div className="sheet-backdrop over-sheet" onClick={() => setMore(false)} />
           <div className="more-sheet">
             <nav className="nav">
               {AREAS.filter((a) => !PRIMARY.includes(a.id)).map((a) => <NavItem key={a.id} id={a.id} />)}

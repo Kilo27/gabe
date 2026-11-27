@@ -51,8 +51,8 @@ function Reader({ m, onClose }: { m: Email; onClose: () => void }) {
       </>
     }>
       <p><strong>{senderName(m.from)}</strong> <span className="faint">· {shortDate(m.date)}{m.account && ` · to ${m.account}`}</span></p>
-      {full.isLoading ? <SkeletonList rows={3} /> : <div className="letter-body" style={{ marginTop: 14 }}>{full.data?.body}</div>}
-      <div style={{ marginTop: 20 }}>
+      {full.isLoading ? <SkeletonList rows={3} /> : <div className="letter-body mt-12">{full.data?.body}</div>}
+      <div className="mt-24">
         <Field label="What should the reply say? (optional)">
           <textarea className="textarea" rows={3} value={hint} onChange={(e) => setHint(e.target.value)} />
         </Field>
@@ -126,7 +126,7 @@ export default function InboxPage() {
         </div>
       ) : (
         <>
-          {job.data?.status === "error" && <div style={{ marginBottom: 14 }}><Notice hue="danger" icon={AlertTriangle} title="Sorting failed">{job.data.error}</Notice></div>}
+          {job.data?.status === "error" && <div className="mb-16"><Notice hue="danger" icon={AlertTriangle} title="Sorting failed">{job.data.error}</Notice></div>}
           <div className="toolbar">
             <Segmented<Filter> label="Show" value={filter} onChange={setFilter} options={[
               { value: "all", label: "All", count: msgs.length },

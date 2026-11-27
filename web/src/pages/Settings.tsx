@@ -69,8 +69,8 @@ function Company({ s }: { s: Settings }) {
       <div className="field">
         <span>Other facts</span>
         {facts.map(([k, v], i) => (
-          <div className="row" key={i} style={{ flexWrap: "nowrap" }}>
-            <input className="input" style={{ maxWidth: 220 }} value={k} aria-label="Fact name" onChange={(e) => setFacts(facts.map((x, j) => (j === i ? [e.target.value, x[1], x[2]] : x)))} />
+          <div className="row nowrap" key={i} >
+            <input className="input fact-key" value={k} aria-label="Fact name" onChange={(e) => setFacts(facts.map((x, j) => (j === i ? [e.target.value, x[1], x[2]] : x)))} />
             <input className="input grow" value={v} aria-label="Fact value" onChange={(e) => setFacts(facts.map((x, j) => (j === i ? [x[0], e.target.value, x[2]] : x)))} />
             <button className="btn btn-ghost btn-icon btn-danger" aria-label="Remove fact" onClick={() => setFacts(facts.filter((_, j) => j !== i))}><Trash2 size={16} /></button>
           </div>
@@ -94,7 +94,7 @@ function Brief({ s }: { s: Settings }) {
       <div className="field">
         <span>Send to</span>
         {to.map((addr, i) => (
-          <div className="row" key={i} style={{ flexWrap: "nowrap" }}>
+          <div className="row nowrap" key={i} >
             <input className="input grow" type={addr.trim().toLowerCase() === "me" ? "text" : "email"} value={addr} aria-label={`Recipient ${i + 1}`}
               placeholder="name@company.com" onChange={(e) => setTo(to.map((x, j) => (j === i ? e.target.value : x)))} />
             <button className="btn btn-ghost btn-icon btn-danger" aria-label="Remove recipient" onClick={() => setTo(to.length > 1 ? to.filter((_, j) => j !== i) : [""])}><Trash2 size={16} /></button>
@@ -219,7 +219,7 @@ function Email({ s }: { s: Settings }) {
             <div className="row">
               <GoogleButton onClick={() => connect.mutate()} disabled={job.data?.status === "running"}
                 label={(st.mailboxes ?? []).length ? "Add another Google account" : "Sign in with Google"} />
-              {job.data?.status === "running" && <span className="faint row" style={{ gap: 6 }}><Loader2 size={14} className="spin" /> Finish in your browser</span>}
+              {job.data?.status === "running" && <span className="faint row gap-8"><Loader2 size={14} className="spin" /> Finish in your browser</span>}
             </div>
           )}
         </div>
@@ -276,7 +276,7 @@ function Calendar({ s }: { s: Settings }) {
       {backend === "google" && st?.state === "disconnected" && (
         <div className="row">
           <GoogleButton onClick={() => connect.mutate()} disabled={job.data?.status === "running"} />
-          {job.data?.status === "running" && <span className="faint row" style={{ gap: 6 }}><Loader2 size={14} className="spin" /> Finish in your browser</span>}
+          {job.data?.status === "running" && <span className="faint row gap-8"><Loader2 size={14} className="spin" /> Finish in your browser</span>}
         </div>
       )}
       {job.data?.status === "error" && <Notice hue="danger" icon={AlertTriangle}>{job.data.error}</Notice>}
@@ -356,7 +356,7 @@ function Playbooks({ s }: { s: Settings }) {
             <li key={p.name}><button aria-current={sel === p.name} onClick={() => setSel(p.name)}>{humanize(p.name)}</button></li>
           ))}
         </ul>
-        <div style={{ padding: 10 }}><button className="btn btn-sm" style={{ width: "100%" }} onClick={() => { setSel(null); setName(""); setText(""); }}><Plus size={15} /> New playbook</button></div>
+        <div className="pad-12"><button className="btn btn-sm w-full" onClick={() => { setSel(null); setName(""); setText(""); }}><Plus size={15} /> New playbook</button></div>
       </nav>
       <Section title={sel ? humanize(sel) : "New playbook"} foot={
         <>
@@ -367,7 +367,7 @@ function Playbooks({ s }: { s: Settings }) {
       }>
         <Field label="Name"><input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. client-onboarding" /></Field>
         <div className="field">
-          <div className="row" style={{ justifyContent: "space-between" }}>
+          <div className="row between">
             <span>Instructions</span>
             <Segmented label="Mode" value={preview ? "p" : "e"} onChange={(v) => setPreview(v === "p")} options={[{ value: "e", label: "Write" }, { value: "p", label: "Preview" }]} />
           </div>
@@ -395,7 +395,7 @@ function ApiKey({ s }: { s: Settings }) {
       {set && <Notice hue="tasks" icon={CheckCircle2} title={s.desktop ? "Saved in your keychain" : "Set"} action={
         <button className="btn btn-sm" onClick={() => confirm("Remove the API key?") && save.mutate("")}>Remove</button>
       } />}
-      <form className="row" style={{ flexWrap: "nowrap" }} onSubmit={(e) => { e.preventDefault(); if (key.trim()) save.mutate(key.trim()); }}>
+      <form className="row nowrap" onSubmit={(e) => { e.preventDefault(); if (key.trim()) save.mutate(key.trim()); }}>
         <input className="input grow" type="password" autoComplete="off" spellCheck={false} placeholder={set ? "Replace key" : "Paste your Anthropic API key"} value={key} onChange={(e) => setKey(e.target.value)} aria-label="API key" />
         <button className="btn btn-primary" disabled={!key.trim() || save.isPending}>Save</button>
       </form>
@@ -478,7 +478,7 @@ function UpdatesTab() {
         {u.state === "available" && (u.commits?.length ?? 0) > 0 && (
           <div className="field">
             <span>{u.behind} new</span>
-            <ul className="stack" style={{ gap: 4 }}>
+            <ul className="stack gap-4">
               {u.commits!.map((c) => <li key={c.sha}><code className="faint">{short(c.sha)}</code> {c.message}</li>)}
             </ul>
           </div>
@@ -497,7 +497,7 @@ function UpdatesTab() {
           {u.token && <Notice hue="tasks" icon={CheckCircle2} title={{ keychain: "Saved in your keychain", env: "From the environment", gh: "From the GitHub CLI" }[u.token]} action={
             u.token === "keychain" && <button className="btn btn-sm" onClick={() => confirm("Remove the GitHub token?") && saveToken.mutate("")}>Remove</button>
           } />}
-          <form className="row" style={{ flexWrap: "nowrap" }} onSubmit={(e) => { e.preventDefault(); if (token.trim()) saveToken.mutate(token.trim()); }}>
+          <form className="row nowrap" onSubmit={(e) => { e.preventDefault(); if (token.trim()) saveToken.mutate(token.trim()); }}>
             <input className="input grow" type="password" autoComplete="off" spellCheck={false} placeholder={u.token ? "Replace token" : "github_pat_…"} value={token} onChange={(e) => setToken(e.target.value)} aria-label="GitHub token" />
             <button className="btn btn-primary" disabled={!token.trim() || saveToken.isPending}>Save</button>
           </form>

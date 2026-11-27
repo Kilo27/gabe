@@ -66,9 +66,9 @@ export function Skeleton({ h = 18, w = "100%", style }: { h?: number; w?: number
 
 export function SkeletonList({ rows = 4 }: { rows?: number }) {
   return (
-    <div className="stack" aria-label="Loading" style={{ padding: 18, gap: 14 }}>
+    <div className="stack pad-16 gap-12" aria-label="Loading">
       {Array.from({ length: rows }, (_, i) => (
-        <div key={i} className="stack" style={{ gap: 8 }}>
+        <div key={i} className="stack gap-8">
           <Skeleton h={16} w={`${60 - i * 7}%`} />
           <Skeleton h={12} w={`${85 - i * 5}%`} />
         </div>

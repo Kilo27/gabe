@@ -42,7 +42,7 @@ export function ActivityRow({ row, compact }: { row: AuditRow; compact?: boolean
       </div>
       {!compact && (
         <button className="btn btn-ghost btn-sm btn-icon" onClick={() => setOpen(!open)} aria-expanded={open} aria-label={open ? "Hide details" : "Show details"}>
-          <ChevronDown size={17} style={{ rotate: open ? "180deg" : "0deg", transition: "rotate 200ms" }} />
+          <ChevronDown size={17} className="chev" data-open={open} />
         </button>
       )}
     </li>
@@ -113,7 +113,7 @@ export default function Activity() {
               </section>
             ))}
             {data.total > data.rows.length && (
-              <div style={{ padding: 16, textAlign: "center" }}>
+              <div className="pad-16 center">
                 <button className="btn" onClick={() => setLimit(limit + 200)}>Show older ({data.total - data.rows.length} more)</button>
               </div>
             )}

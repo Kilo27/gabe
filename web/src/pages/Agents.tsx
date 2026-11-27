@@ -534,9 +534,9 @@ function AgentSheet({ a, agents, levels, onClose }: { a: Hued; agents: Hued[]; l
         </>}
       </>
     }>
-      <div className="stack" style={{ gap: 22 }}>
+      <div className="stack gap-24">
         {mine.length > 0 && (
-          <div className="stack" style={{ gap: 12 }}>
+          <div className="stack gap-12">
             {mine.map((x) => <ApprovalCard key={x.id} a={x} compact />)}
           </div>
         )}

@@ -67,27 +67,27 @@ function DocRow({ d }: { d: FaqDoc }) {
   });
   const del = useFaqMutation(() => api.del(`/api/faq/documents/${encodeURIComponent(d.name)}`), "Document removed");
   return (
-    <li data-area={d.error ? "danger" : "settings"} style={{ display: "block", padding: 0 }}>
+    <li data-area={d.error ? "danger" : "settings"} className="flush">
       <div className="faq-doc">
         <button className="faq-q" aria-expanded={open} onClick={() => setOpen(!open)}>
           {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
           <FileText size={16} />
           <span className="grow faq-q-text">{d.name}</span>
-          <span className="faint" style={{ whiteSpace: "nowrap" }}>
+          <span className="faint nobreak">
             {d.error ? d.error : d.questions ? plural(d.questions, "question") : plural(d.entries, "passage")}
           </span>
         </button>
         <button className="btn btn-ghost btn-icon btn-danger" aria-label={`Remove ${d.name}`} onClick={() => confirm(`Remove ${d.name}?`) && del.mutate(undefined)}><Trash2 size={16} /></button>
       </div>
       {open && (
-        <div style={{ padding: "0 14px 12px 40px" }}>
+        <div className="inset-icon">
           {items.isLoading ? <Loader2 size={15} className="spin" /> : (
-            <div className="stack" style={{ gap: 10 }}>
+            <div className="stack gap-12">
               {(items.data?.items ?? []).map((e) => (
                 <div key={e.id}>
                   {e.question ? <strong>{e.question}</strong> : null}
                   {e.section && <span className="faint"> · {e.section}</span>}
-                  <div className="muted" style={{ whiteSpace: "pre-wrap" }}>{e.answer}</div>
+                  <div className="muted pre-wrap">{e.answer}</div>
                 </div>
               ))}
             </div>
@@ -127,7 +127,7 @@ function Documents({ f }: { f: Faq }) {
         <button className="btn btn-primary" onClick={() => input.current?.click()} disabled={busy}>
           {busy ? <Loader2 size={15} className="spin" /> : <Upload size={15} />} Upload
         </button>
-        <span className="faint" style={{ marginLeft: 10 }}>.txt .md .docx .csv .json</span>
+        <span className="faint ml-8">.txt .md .docx .csv .json</span>
       </div>
     </Section>
   );
@@ -143,7 +143,7 @@ function TryIt({ f }: { f: Faq }) {
   const r = ask.data;
   return (
     <Section title="Try it">
-      <form className="row" style={{ flexWrap: "nowrap" }} onSubmit={(e) => { e.preventDefault(); if (q.trim()) ask.mutate(q.trim()); }}>
+      <form className="row nowrap" onSubmit={(e) => { e.preventDefault(); if (q.trim()) ask.mutate(q.trim()); }}>
         <input className="input grow" value={q} onChange={(e) => setQ(e.target.value)} placeholder="How do I get a refund?" aria-label="Customer question" disabled={!f.documents.length} />
         <button className="btn btn-primary" disabled={!q.trim() || ask.isPending || !f.documents.length}>
           {ask.isPending ? <Loader2 size={15} className="spin" /> : <Send size={15} />} Ask
@@ -153,7 +153,7 @@ function TryIt({ f }: { f: Faq }) {
         <div className="letter">
           <div className="letter-body">{r.text}</div>
           {r.used.length > 0 && (
-            <div className="row" style={{ gap: 6, marginTop: 12 }}>
+            <div className="row gap-8 mt-12">
               {r.used.map((u) => <Chip key={u.id} hue="settings" title={u.source}>{u.question || u.source}</Chip>)}
             </div>
           )}
@@ -192,7 +192,7 @@ function Tokens({ f }: { f: Faq }) {
   const openNew = () => (native() ? native()!.open_url(NEW_APP_URL) : window.open(NEW_APP_URL, "_blank", "noopener"));
   const tokenRow = (label: string, set: boolean, value: string, setValue: (v: string) => void, key: string, prefix: string) => (
     <Field label={label}>
-      <div className="row" style={{ flexWrap: "nowrap" }}>
+      <div className="row nowrap">
         <input className="input grow" type="password" autoComplete="off" spellCheck={false} value={value} onChange={(e) => setValue(e.target.value)}
           placeholder={set ? "Saved · replace" : `${prefix}…`} aria-label={label} />
         {set && !value && <button className="btn btn-sm" type="button" onClick={() => confirm(`Remove the ${label.toLowerCase()}?`) && save.mutate({ [key]: "" })}>Remove</button>}
@@ -342,7 +342,7 @@ function SlackSection({ f }: { f: Faq }) {
           </select>
         </Field>
       </div>
-      <div className="row" style={{ gap: 22 }}>
+      <div className="row gap-24">
         <Check label="Direct messages" checked={form.direct_messages} onChange={(v) => set({ direct_messages: v })} />
         <Check label="Follow-ups in its threads" checked={form.follow_ups} onChange={(v) => set({ follow_ups: v })} />
       </div>
@@ -387,7 +387,7 @@ function Questions({ f }: { f: Faq }) {
             const o = OUTCOMES[q.outcome] ?? { label: q.outcome, hue: "neutral" as const };
             const isOpen = open === q.id;
             return (
-              <li key={q.id} style={{ display: "block", padding: 0 }}>
+              <li key={q.id} className="flush">
                 <button className="faq-q" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : q.id)}>
                   <span className="grow">
                     <span className="faq-q-text">{q.text}</span>
@@ -396,11 +396,11 @@ function Questions({ f }: { f: Faq }) {
                   <Chip hue={o.hue} dot>{o.label}</Chip>
                 </button>
                 {isOpen && (q.reply || q.error || q.used?.length) && (
-                  <div style={{ padding: "0 14px 12px" }}>
+                  <div className="inset">
                     {q.reply && <div className="letter"><div className="letter-body">{q.reply}</div></div>}
                     {q.error && <p className="faint">{q.error}</p>}
                     {q.used && q.used.length > 0 && (
-                      <div className="row" style={{ gap: 6, marginTop: 8 }}>{q.used.map((u, i) => <Chip key={i} hue="settings">{u}</Chip>)}</div>
+                      <div className="row gap-8 mt-8">{q.used.map((u, i) => <Chip key={i} hue="settings">{u}</Chip>)}</div>
                     )}
                   </div>
                 )}
