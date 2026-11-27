@@ -58,6 +58,13 @@ Hovering a map node shows a settings card beside it (pause, model, freedom, what
 settings"); a click keeps it open until a click elsewhere or Escape. Changes there save at once
 with a toast; the sheet is for name, job, instructions, manager and the tool checkboxes.
 
+The FAQ bot is listed as the last Team row and has its own page at `/agents/faq`.
+
+### Settings
+
+Six tabs: Company · Daily brief · Approval rules · Connections (Email, Calendar, other services) ·
+Playbooks · Advanced (API key and usage, Claude Code, Updates). Old tab addresses redirect.
+
 ## Type
 
 IBM Plex Sans Variable for everything (self-hosted via `@fontsource-variable/ibm-plex-sans`);

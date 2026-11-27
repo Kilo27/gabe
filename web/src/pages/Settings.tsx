@@ -1,28 +1,28 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Download, ExternalLink, Loader2, Plus, RefreshCw, SquareTerminal, Trash2 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
-import { NavLink, useParams } from "react-router-dom";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Navigate, NavLink, useParams } from "react-router-dom";
 import { GoogleButton } from "../components/GoogleButton";
 import { ThemeSwitch } from "../components/Shell";
 import { api, native, type Decision, type Job, type Settings, type Updates } from "../api";
 import { Field, Markdown, Notice, PageHeader, Segmented, SkeletonList, useToast } from "../components/ui";
 import { DECISION_WORDS, RISK, humanize, tool } from "../lib/tools";
-import FaqBot from "./FaqBot";
 
 const TABS = [
   ["company", "Company"],
   ["brief", "Daily brief"],
   ["rules", "Approval rules"],
-  ["email", "Email"],
-  ["calendar", "Calendar"],
   ["connections", "Connections"],
-  ["faq", "FAQ bot"],
   ["playbooks", "Playbooks"],
-  ["customize", "Customize"],
-  ["model", "API key"],
-  ["updates", "Updates"],
+  ["advanced", "Advanced"],
 ] as const;
 type Tab = (typeof TABS)[number][0];
+/** Old tab addresses, kept working. */
+const MOVED: Record<string, string> = {
+  email: "/settings/connections", calendar: "/settings/connections",
+  model: "/settings/advanced", customize: "/settings/advanced", updates: "/settings/advanced",
+  faq: "/agents/faq",
+};
 const DAYS = [["mon", "Mon"], ["tue", "Tue"], ["wed", "Wed"], ["thu", "Thu"], ["fri", "Fri"], ["sat", "Sat"], ["sun", "Sun"]];
 
 function useSave(url: string, label = "Saved") {
@@ -285,7 +285,7 @@ function Calendar({ s }: { s: Settings }) {
 function Connections({ s }: { s: Settings }) {
   const servers = s.integrations.find((i) => i.name === "mcp")?.servers ?? [];
   return (
-    <Section title="MCP servers">
+    <Section title="Other services">
       {servers.length === 0 ? <p className="muted">None.</p> : (
         <ul className="mailboxes">
           {servers.map((m) => (
@@ -405,7 +405,7 @@ function ApiKey({ s }: { s: Settings }) {
 function Model({ s }: { s: Settings }) {
   const total = s.usage.reduce((a, d) => ({ input: a.input + d.input, output: a.output + d.output }), { input: 0, output: 0 });
   return (
-    <div className="stack">
+    <>
       {s.provider.kind === "anthropic" && <ApiKey s={s} />}
       <Section title="Usage (last 30 days)">
         {s.usage.length === 0 ? <p className="muted">No usage recorded yet.</p> : (
@@ -418,7 +418,7 @@ function Model({ s }: { s: Settings }) {
           </>
         )}
       </Section>
-    </div>
+    </>
   );
 }
 
@@ -448,7 +448,7 @@ function UpdatesTab() {
   if (!u) return <div className="panel"><SkeletonList rows={3} /></div>;
   const busy = u.state === "installing" || install.isPending;
   return (
-    <div className="stack">
+    <>
       <Section title="Version" foot={u.supported && (
         <>
           <button className="btn" onClick={() => check.mutate()} disabled={check.isPending || busy}>
@@ -502,19 +502,30 @@ function UpdatesTab() {
           </form>
         </Section>
       )}
-    </div>
+    </>
   );
 }
 
+function ConnectionsTab({ s }: { s: Settings }) {
+  return <><Email s={s} /><Calendar s={s} /><Connections s={s} /></>;
+}
+
+function Advanced({ s }: { s: Settings }) {
+  return <><Model s={s} /><Customize s={s} /><UpdatesTab /></>;
+}
+
 export default function SettingsPage() {
-  const { tab = "company" } = useParams<{ tab: Tab }>();
+  const { tab = "company" } = useParams<{ tab: string }>();
   const { data, isLoading, error } = useQuery({ queryKey: ["settings"], queryFn: () => api.get<Settings>("/api/settings") });
-  const Body = { company: Company, brief: Brief, rules: Rules, email: Email, calendar: Calendar, connections: Connections, faq: FaqBot, playbooks: Playbooks, customize: Customize, model: Model, updates: UpdatesTab }[tab as Tab] ?? Company;
+  const tabs = useRef<HTMLElement>(null);
+  useEffect(() => { tabs.current?.querySelector(".active")?.scrollIntoView({ block: "nearest", inline: "nearest" }); }, [tab]);
+  if (MOVED[tab]) return <Navigate to={MOVED[tab]} replace />;
+  const Body = { company: Company, brief: Brief, rules: Rules, connections: ConnectionsTab, playbooks: Playbooks, advanced: Advanced }[tab as Tab] ?? Company;
   return (
     <>
       <PageHeader area="settings" actions={<ThemeSwitch />} />
       <div className="settings">
-        <nav className="settings-tabs" aria-label="Settings sections" data-area="settings">
+        <nav ref={tabs} className="settings-tabs" aria-label="Settings sections" data-area="settings">
           {TABS.map(([id, label]) => <NavLink key={id} to={`/settings/${id}`} className={tab === id ? "active" : undefined}>{label}</NavLink>)}
         </nav>
         <div className="grow">

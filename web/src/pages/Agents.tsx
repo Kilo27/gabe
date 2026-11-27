@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Bot, FileText, Loader2, MessageCircle, Pause, Play, Plus, Send, SlidersHorizontal, Sparkles, Trash2, User } from "lucide-react";
+import { AlertTriangle, BookOpen, Bot, FileText, Loader2, MessageCircle, Pause, Play, Plus, Send, SlidersHorizontal, Sparkles, Trash2, User } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
-import { api, type Agent, type AgentsData, type Approval, type Decision, type Job, type Proposal, type Task, type SessionSummary, type TimelineItem } from "../api";
+import { api, type Agent, type AgentsData, type Approval, type Decision, type Faq, type Job, type Proposal, type Task, type SessionSummary, type TimelineItem } from "../api";
 import { ApprovalCard } from "../components/ApprovalCard";
 import { AttachedTask, TaskPicker } from "../components/TaskPicker";
 import { Field, Notice, PageHeader, Segmented, Sheet, SkeletonList, useToast } from "../components/ui";
@@ -352,7 +352,11 @@ function AgentIcon({ a, size = 17 }: { a: Agent; size?: number }) {
   return a.kind === "briefing" ? <FileText size={size} /> : a.kind === "chief" ? <Sparkles size={size} /> : <Bot size={size} />;
 }
 
+const FAQ_STATE: Record<Faq["status"]["state"], string> = { off: "Off", missing_tokens: "Needs tokens", connecting: "Connecting", connected: "On", error: "Can't connect" };
+
 function TeamList({ agents, levels, onOpen }: { agents: Hued[]; levels: AgentsData["freedom_levels"]; onOpen: (a: Hued) => void }) {
+  const faq = useQuery({ queryKey: ["faq"], queryFn: () => api.get<Faq>("/api/faq") });
+  const f = faq.data;
   return (
     <ul className="team">
       {agents.map((a) => {
@@ -386,6 +390,22 @@ function TeamList({ agents, levels, onOpen }: { agents: Hued[]; levels: AgentsDa
           </li>
         );
       })}
+      {f && (
+        <li className="team-item" data-area="neutral" data-status={f.enabled && f.status?.state === "connected" ? "idle" : "paused"}>
+          <Link to="/agents/faq" className="team-row">
+            <span className="node-tile"><BookOpen size={17} /></span>
+            <span className="team-who">
+              <strong>FAQ bot</strong>
+              <span className="team-now">Answers questions in Slack from your FAQ documents</span>
+            </span>
+            <span className="team-set hide-sm" />
+            <span className="team-boss hide-sm" />
+            <span className="team-done hide-sm">{f.enabled ? `${f.documents.length} ${f.documents.length === 1 ? "document" : "documents"}` : null}</span>
+            <span className="agent-state">{f.enabled ? FAQ_STATE[f.status?.state] ?? "Off" : "Off"}</span>
+          </Link>
+          <span className="team-spacer" aria-hidden />
+        </li>
+      )}
     </ul>
   );
 }

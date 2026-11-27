@@ -73,8 +73,8 @@ function NeedsYou() {
   if (t.due_today) rows.push({ hue: "tasks", icon: Clock, text: `${plural(t.due_today, "task")} due today`, to: "/tasks?due=today", cta: "See them" });
   if (t.blocked) rows.push({ hue: "danger", icon: OctagonAlert, text: `${plural(t.blocked, "task")} ${t.blocked === 1 ? "is" : "are"} blocked`, to: "/tasks?status=blocked", cta: "Unblock" });
   if (t.due_week) rows.push({ hue: "tasks", icon: CalendarClock, text: `${plural(t.due_week, "task")} due in the next 7 days`, to: "/tasks?due=week", cta: "Plan" });
-  if (data.email.state !== "connected" && data.email.state !== "practice") rows.push({ hue: "inbox", icon: Mail, text: "Gmail isn't connected", to: "/settings/email", cta: "Fix" });
-  if (data.calendar && ["disconnected", "missing_file"].includes(data.calendar.state)) rows.push({ hue: "today", icon: CalendarDays, text: "The calendar isn't connected", to: "/settings/calendar", cta: "Fix" });
+  if (data.email.state !== "connected" && data.email.state !== "practice") rows.push({ hue: "inbox", icon: Mail, text: "Gmail isn't connected", to: "/settings/connections", cta: "Fix" });
+  if (data.calendar && ["disconnected", "missing_file"].includes(data.calendar.state)) rows.push({ hue: "today", icon: CalendarDays, text: "The calendar isn't connected", to: "/settings/connections", cta: "Fix" });
 
   return (
     <section className="panel" aria-labelledby="needs-you">

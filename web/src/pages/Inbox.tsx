@@ -121,7 +121,7 @@ export default function InboxPage() {
           <Empty hue={status?.state === "error" ? "danger" : "inbox"} icon={status?.state === "error" ? AlertTriangle : InboxIcon} title={status?.state === "practice" ? "Email is in practice mode" : status?.state === "error" ? "Couldn't load email" : "Gmail isn't connected"} action={
             status?.state === "disconnected" ? (
               <GoogleButton onClick={() => signIn.mutate()} disabled={signing} label={signing ? "Finish in your browser…" : "Sign in with Google"} />
-            ) : <Link to="/settings/email" className="btn btn-primary" data-area="inbox">Email settings</Link>
+            ) : <Link to="/settings/connections" className="btn btn-primary" data-area="inbox">Email settings</Link>
           }>{status?.state === "disconnected" ? null : status?.message}</Empty>
         </div>
       ) : (

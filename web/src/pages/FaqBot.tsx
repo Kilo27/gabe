@@ -27,7 +27,7 @@ const STATUS: Record<string, { label: string; hue: "tasks" | "approvals" | "dang
 
 function Section({ title, children, foot, aside }: { title: string; children: ReactNode; foot?: ReactNode; aside?: ReactNode }) {
   return (
-    <section className="panel" data-area="settings">
+    <section className="panel" data-area="agents">
       <div className="panel-head"><span className="swatch" /><h2 className="grow">{title}</h2>{aside}</div>
       <div className="panel-pad stack">{children}</div>
       {foot && <div className="panel-foot">{foot}</div>}

@@ -704,6 +704,8 @@ li[data-unread="true"] .mail-from::before { background: var(--inbox); }
   width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr) 200px 150px 110px 96px; gap: 14px; align-items: center;
   padding: 10px 0; border: 0; background: none; text-align: left; color: inherit; cursor: pointer;
 }
+a.team-row { text-decoration: none; }
+.team-spacer { width: 30px; flex: none; }
 .team-row:hover { background: linear-gradient(90deg, transparent, var(--hue-soft) 10%, var(--hue-soft) 90%, transparent); }
 .team-who { display: flex; flex-direction: column; min-width: 0; }
 .team-who strong { font-weight: 600; }

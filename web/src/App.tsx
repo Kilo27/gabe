@@ -1,8 +1,11 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Link, Navigate, Route, Routes } from "react-router-dom";
+import { ArrowLeft } from "lucide-react";
+import { PageHeader } from "./components/ui";
 import { Shell } from "./components/Shell";
 import Activity from "./pages/Activity";
 import Agents from "./pages/Agents";
 import Approvals from "./pages/Approvals";
+import FaqBot from "./pages/FaqBot";
 import Chat from "./pages/Chat";
 import InboxPage from "./pages/Inbox";
 import Notes from "./pages/Notes";
@@ -17,6 +20,10 @@ export default function App() {
         <Route path="/" element={<Today />} />
         <Route path="/today" element={<Navigate to="/" replace />} />
         <Route path="/agents" element={<Agents />} />
+        <Route path="/agents/faq" element={<>
+          <PageHeader area="agents" title="FAQ bot" actions={<Link to="/agents" className="btn btn-ghost"><ArrowLeft size={16} /> Agents</Link>} />
+          <FaqBot />
+        </>} />
         <Route path="/ask" element={<Chat />} />
         <Route path="/ask/:id" element={<Chat />} />
         <Route path="/approvals" element={<Approvals />} />
