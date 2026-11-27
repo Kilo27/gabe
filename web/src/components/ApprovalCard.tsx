@@ -4,8 +4,8 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Approval } from "../api";
 import { when } from "../lib/format";
-import { MODELS, modelLabel } from "../lib/agents";
-import { RISK, humanize, tool } from "../lib/tools";
+import { MODELS, MODEL_HINT, modelLabel } from "../lib/agents";
+import { RISK, humanize, showValue, tool } from "../lib/tools";
 import { Chip, Field, useToast } from "./ui";
 
 const EMAIL_TOOLS = ["send_email", "draft_email"];
@@ -23,8 +23,8 @@ function NewMemberView({ args }: { args: Record<string, any> }) {
         <dt>Model</dt><dd>{modelLabel(args.model)}</dd>
       </dl>
       <div className="letter-body">{args.instructions}</div>
-      {args.first_task && <p style={{ marginTop: 12 }}><strong>First task:</strong> {args.first_task}</p>}
-      <div className="row" style={{ gap: 6, marginTop: 12 }}>
+      {args.first_task && <p className="mt-12"><strong>First task:</strong> {args.first_task}</p>}
+      <div className="row gap-8 mt-12">
         {(args.skills ?? []).map((s: string) => <Chip key={s} hue={tool(s).area}>{tool(s).label}</Chip>)}
       </div>
     </div>
@@ -34,7 +34,7 @@ function NewMemberView({ args }: { args: Record<string, any> }) {
 function NewMemberEditor({ value, onChange }: { value: Record<string, any>; onChange: (v: Record<string, any>) => void }) {
   const skills: string[] = value.skills ?? [];
   return (
-    <div className="stack" style={{ gap: 12 }}>
+    <div className="stack gap-12">
       <Field label="Name"><input className="input" value={value.name ?? ""} onChange={(e) => onChange({ ...value, name: e.target.value })} /></Field>
       <Field label="Job"><input className="input" value={value.job ?? ""} onChange={(e) => onChange({ ...value, job: e.target.value })} /></Field>
       <Field label="Instructions"><textarea className="textarea" rows={4} value={value.instructions ?? ""} onChange={(e) => onChange({ ...value, instructions: e.target.value })} /></Field>
@@ -49,7 +49,7 @@ function NewMemberEditor({ value, onChange }: { value: Record<string, any>; onCh
           onChange(e.target.value ? { ...rest, model: e.target.value } : rest);
         }}>
           <option value="">Default</option>
-          {Object.entries(MODELS).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+          {Object.entries(MODELS).map(([k, label]) => <option key={k} value={k}>{label} · {MODEL_HINT[k]}</option>)}
         </select>
       </Field>
       <div className="field">
@@ -96,13 +96,13 @@ function SlackReplyView({ args }: { args: Record<string, any> }) {
   );
 }
 
-function GenericView({ args }: { args: Record<string, any> }) {
+function GenericView({ args, name }: { args: Record<string, any>; name: string }) {
   return (
     <dl className="kv">
       {Object.entries(args).map(([k, v]) => (
         <div key={k}>
           <dt>{humanize(k)}</dt>
-          <dd>{typeof v === "string" ? v : Array.isArray(v) ? v.join(", ") : JSON.stringify(v)}</dd>
+          <dd>{showValue(name, k, v)}</dd>
         </div>
       ))}
     </dl>
@@ -122,7 +122,7 @@ function Editor({ a, value, onChange }: { a: Approval; value: Record<string, any
   }
   if (EMAIL_TOOLS.includes(a.tool)) {
     return (
-      <div className="stack" style={{ gap: 12 }}>
+      <div className="stack gap-12">
         <Field label="To">
           <input className="input" value={(value.to ?? []).join(", ")} onChange={(e) => onChange({ ...value, to: splitList(e.target.value) })} />
         </Field>
@@ -143,7 +143,7 @@ function Editor({ a, value, onChange }: { a: Approval; value: Record<string, any
     );
   }
   return (
-    <div className="stack" style={{ gap: 12 }}>
+    <div className="stack gap-12">
       {Object.entries(value).map(([k, v]) => (
         <Field key={k} label={humanize(k)}>
           {typeof v === "string" && v.length > 60 ? (
@@ -190,15 +190,15 @@ function QuestionCard({ a, compact }: { a: Approval; compact?: boolean }) {
       </header>
       <div className="approval-body"><p className="question-text">{a.args.question}</p></div>
       {pending ? (
-        <form className="approval-body stack" style={{ gap: 10 }} onSubmit={(e) => { e.preventDefault(); if (text.trim()) send.mutate(text.trim()); }}>
+        <form className="approval-body stack gap-12" onSubmit={(e) => { e.preventDefault(); if (text.trim()) send.mutate(text.trim()); }}>
           {choices.length > 0 && (
-            <div className="row" style={{ gap: 8 }}>
+            <div className="row gap-8">
               {choices.map((c) => (
                 <button key={c} type="button" className="btn btn-sm" disabled={send.isPending} onClick={() => send.mutate(c)}>{c}</button>
               ))}
             </div>
           )}
-          <div className="row" style={{ flexWrap: "nowrap" }}>
+          <div className="row nowrap">
             <input className="input grow" value={text} onChange={(e) => setText(e.target.value)} placeholder={choices.length ? "Or type your own answer" : "Type your answer"} aria-label={`Answer ${who}`} />
             <button className="btn btn-primary" disabled={!text.trim() || send.isPending}>Send</button>
           </div>
@@ -282,12 +282,12 @@ function ApprovalDecision({ a, compact }: { a: Approval; compact?: boolean }) {
         ) : EMAIL_TOOLS.includes(a.tool) ? (
           <EmailView args={a.args} />
         ) : (
-          <GenericView args={a.args} />
+          <GenericView args={a.args} name={a.tool} />
         )}
       </div>
 
       {mode === "reject" && (
-        <div className="approval-body" style={{ paddingTop: 0 }}>
+        <div className="approval-body pt-0">
           <Field label="Note to Gabe (optional)">
             <textarea className="textarea" rows={3} value={note} onChange={(e) => setNote(e.target.value)} autoFocus />
           </Field>
@@ -338,7 +338,7 @@ function ApprovalDecision({ a, compact }: { a: Approval; compact?: boolean }) {
         )}
       </footer>
       {pending && a.live === false && (
-        <p className="faint" style={{ padding: "0 18px 14px" }}>Gabe is no longer waiting on this.</p>
+        <p className="faint inset">Gabe is no longer waiting on this.</p>
       )}
     </article>
   );

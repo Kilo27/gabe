@@ -1,27 +1,28 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Download, ExternalLink, Loader2, Plus, RefreshCw, SquareTerminal, Trash2 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
-import { NavLink, useParams } from "react-router-dom";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Navigate, NavLink, useParams } from "react-router-dom";
 import { GoogleButton } from "../components/GoogleButton";
+import { ThemeSwitch } from "../components/Shell";
 import { api, native, type Decision, type Job, type Settings, type Updates } from "../api";
 import { Field, Markdown, Notice, PageHeader, Segmented, SkeletonList, useToast } from "../components/ui";
 import { DECISION_WORDS, RISK, humanize, tool } from "../lib/tools";
-import FaqBot from "./FaqBot";
 
 const TABS = [
   ["company", "Company"],
   ["brief", "Daily brief"],
   ["rules", "Approval rules"],
-  ["email", "Email"],
-  ["calendar", "Calendar"],
   ["connections", "Connections"],
-  ["faq", "FAQ bot"],
   ["playbooks", "Playbooks"],
-  ["customize", "Customize"],
-  ["model", "API key"],
-  ["updates", "Updates"],
+  ["advanced", "Advanced"],
 ] as const;
 type Tab = (typeof TABS)[number][0];
+/** Old tab addresses, kept working. */
+const MOVED: Record<string, string> = {
+  email: "/settings/connections", calendar: "/settings/connections",
+  model: "/settings/advanced", customize: "/settings/advanced", updates: "/settings/advanced",
+  faq: "/agents/faq",
+};
 const DAYS = [["mon", "Mon"], ["tue", "Tue"], ["wed", "Wed"], ["thu", "Thu"], ["fri", "Fri"], ["sat", "Sat"], ["sun", "Sun"]];
 
 function useSave(url: string, label = "Saved") {
@@ -51,10 +52,12 @@ function SaveBtn({ m, onClick }: { m: { isPending: boolean }; onClick: () => voi
 function Company({ s }: { s: Settings }) {
   const [f, setF] = useState(s.company);
   const [name, setName] = useState(s.assistant_name);
-  const [facts, setFacts] = useState(Object.entries(s.company.facts));
+  // Shown as "Working hours"; saved under the original key (working_hours) unless renamed.
+  const [facts, setFacts] = useState(() => Object.entries(s.company.facts).map(([k, v]) => [humanize(k), v, k]));
+  const factKey = ([label, , orig]: string[]) => (orig && humanize(orig) === label ? orig : label.trim().toLowerCase().replace(/\s+/g, "_"));
   const save = useSave("/api/settings/company");
   return (
-    <Section title="Company" foot={<SaveBtn m={save} onClick={() => save.mutate({ ...f, assistant_name: name, facts: Object.fromEntries(facts) })} />}>
+    <Section title="Company" foot={<SaveBtn m={save} onClick={() => save.mutate({ ...f, assistant_name: name, facts: Object.fromEntries(facts.filter((f) => f[0].trim()).map((f) => [factKey(f), f[1]])) })} />}>
       <div className="form-grid">
         <Field label="Company name"><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
         <Field label="Time zone"><input className="input" value={f.timezone} onChange={(e) => setF({ ...f, timezone: e.target.value })} placeholder="Europe/Dublin" /></Field>
@@ -66,13 +69,13 @@ function Company({ s }: { s: Settings }) {
       <div className="field">
         <span>Other facts</span>
         {facts.map(([k, v], i) => (
-          <div className="row" key={i} style={{ flexWrap: "nowrap" }}>
-            <input className="input" style={{ maxWidth: 220 }} value={k} aria-label="Fact name" onChange={(e) => setFacts(facts.map((x, j) => (j === i ? [e.target.value, x[1]] : x)))} />
-            <input className="input grow" value={v} aria-label="Fact value" onChange={(e) => setFacts(facts.map((x, j) => (j === i ? [x[0], e.target.value] : x)))} />
+          <div className="row nowrap" key={i} >
+            <input className="input fact-key" value={k} aria-label="Fact name" onChange={(e) => setFacts(facts.map((x, j) => (j === i ? [e.target.value, x[1], x[2]] : x)))} />
+            <input className="input grow" value={v} aria-label="Fact value" onChange={(e) => setFacts(facts.map((x, j) => (j === i ? [x[0], e.target.value, x[2]] : x)))} />
             <button className="btn btn-ghost btn-icon btn-danger" aria-label="Remove fact" onClick={() => setFacts(facts.filter((_, j) => j !== i))}><Trash2 size={16} /></button>
           </div>
         ))}
-        <div><button className="btn btn-sm" onClick={() => setFacts([...facts, ["", ""]])}><Plus size={15} /> Add fact</button></div>
+        <div><button className="btn btn-sm" onClick={() => setFacts([...facts, ["", "", ""]])}><Plus size={15} /> Add fact</button></div>
       </div>
     </Section>
   );
@@ -91,7 +94,7 @@ function Brief({ s }: { s: Settings }) {
       <div className="field">
         <span>Send to</span>
         {to.map((addr, i) => (
-          <div className="row" key={i} style={{ flexWrap: "nowrap" }}>
+          <div className="row nowrap" key={i} >
             <input className="input grow" type={addr.trim().toLowerCase() === "me" ? "text" : "email"} value={addr} aria-label={`Recipient ${i + 1}`}
               placeholder="name@company.com" onChange={(e) => setTo(to.map((x, j) => (j === i ? e.target.value : x)))} />
             <button className="btn btn-ghost btn-icon btn-danger" aria-label="Remove recipient" onClick={() => setTo(to.length > 1 ? to.filter((_, j) => j !== i) : [""])}><Trash2 size={16} /></button>
@@ -216,7 +219,7 @@ function Email({ s }: { s: Settings }) {
             <div className="row">
               <GoogleButton onClick={() => connect.mutate()} disabled={job.data?.status === "running"}
                 label={(st.mailboxes ?? []).length ? "Add another Google account" : "Sign in with Google"} />
-              {job.data?.status === "running" && <span className="faint row" style={{ gap: 6 }}><Loader2 size={14} className="spin" /> Finish in your browser</span>}
+              {job.data?.status === "running" && <span className="faint row gap-8"><Loader2 size={14} className="spin" /> Finish in your browser</span>}
             </div>
           )}
         </div>
@@ -273,7 +276,7 @@ function Calendar({ s }: { s: Settings }) {
       {backend === "google" && st?.state === "disconnected" && (
         <div className="row">
           <GoogleButton onClick={() => connect.mutate()} disabled={job.data?.status === "running"} />
-          {job.data?.status === "running" && <span className="faint row" style={{ gap: 6 }}><Loader2 size={14} className="spin" /> Finish in your browser</span>}
+          {job.data?.status === "running" && <span className="faint row gap-8"><Loader2 size={14} className="spin" /> Finish in your browser</span>}
         </div>
       )}
       {job.data?.status === "error" && <Notice hue="danger" icon={AlertTriangle}>{job.data.error}</Notice>}
@@ -284,7 +287,7 @@ function Calendar({ s }: { s: Settings }) {
 function Connections({ s }: { s: Settings }) {
   const servers = s.integrations.find((i) => i.name === "mcp")?.servers ?? [];
   return (
-    <Section title="MCP servers">
+    <Section title="Other services">
       {servers.length === 0 ? <p className="muted">None.</p> : (
         <ul className="mailboxes">
           {servers.map((m) => (
@@ -312,9 +315,8 @@ function Customize({ s }: { s: Settings }) {
   return (
     <Section title="Claude Code">
       {s.claude_code.installed ? (
-        <div className="row" style={{ flexWrap: "nowrap" }}>
-          <code className="grow faint" style={{ overflowWrap: "anywhere" }}>{s.claude_code.folder}</code>
-          <button className="btn btn-primary" onClick={() => open.mutate()} disabled={open.isPending}>
+        <div>
+          <button className="btn btn-primary" onClick={() => open.mutate()} disabled={open.isPending} title={s.claude_code.folder}>
             <SquareTerminal size={15} /> Open in Claude Code
           </button>
         </div>
@@ -354,7 +356,7 @@ function Playbooks({ s }: { s: Settings }) {
             <li key={p.name}><button aria-current={sel === p.name} onClick={() => setSel(p.name)}>{humanize(p.name)}</button></li>
           ))}
         </ul>
-        <div style={{ padding: 10 }}><button className="btn btn-sm" style={{ width: "100%" }} onClick={() => { setSel(null); setName(""); setText(""); }}><Plus size={15} /> New playbook</button></div>
+        <div className="pad-12"><button className="btn btn-sm w-full" onClick={() => { setSel(null); setName(""); setText(""); }}><Plus size={15} /> New playbook</button></div>
       </nav>
       <Section title={sel ? humanize(sel) : "New playbook"} foot={
         <>
@@ -365,7 +367,7 @@ function Playbooks({ s }: { s: Settings }) {
       }>
         <Field label="Name"><input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. client-onboarding" /></Field>
         <div className="field">
-          <div className="row" style={{ justifyContent: "space-between" }}>
+          <div className="row between">
             <span>Instructions</span>
             <Segmented label="Mode" value={preview ? "p" : "e"} onChange={(v) => setPreview(v === "p")} options={[{ value: "e", label: "Write" }, { value: "p", label: "Preview" }]} />
           </div>
@@ -393,7 +395,7 @@ function ApiKey({ s }: { s: Settings }) {
       {set && <Notice hue="tasks" icon={CheckCircle2} title={s.desktop ? "Saved in your keychain" : "Set"} action={
         <button className="btn btn-sm" onClick={() => confirm("Remove the API key?") && save.mutate("")}>Remove</button>
       } />}
-      <form className="row" style={{ flexWrap: "nowrap" }} onSubmit={(e) => { e.preventDefault(); if (key.trim()) save.mutate(key.trim()); }}>
+      <form className="row nowrap" onSubmit={(e) => { e.preventDefault(); if (key.trim()) save.mutate(key.trim()); }}>
         <input className="input grow" type="password" autoComplete="off" spellCheck={false} placeholder={set ? "Replace key" : "Paste your Anthropic API key"} value={key} onChange={(e) => setKey(e.target.value)} aria-label="API key" />
         <button className="btn btn-primary" disabled={!key.trim() || save.isPending}>Save</button>
       </form>
@@ -404,7 +406,7 @@ function ApiKey({ s }: { s: Settings }) {
 function Model({ s }: { s: Settings }) {
   const total = s.usage.reduce((a, d) => ({ input: a.input + d.input, output: a.output + d.output }), { input: 0, output: 0 });
   return (
-    <div className="stack">
+    <>
       {s.provider.kind === "anthropic" && <ApiKey s={s} />}
       <Section title="Usage (last 30 days)">
         {s.usage.length === 0 ? <p className="muted">No usage recorded yet.</p> : (
@@ -417,7 +419,7 @@ function Model({ s }: { s: Settings }) {
           </>
         )}
       </Section>
-    </div>
+    </>
   );
 }
 
@@ -447,7 +449,7 @@ function UpdatesTab() {
   if (!u) return <div className="panel"><SkeletonList rows={3} /></div>;
   const busy = u.state === "installing" || install.isPending;
   return (
-    <div className="stack">
+    <>
       <Section title="Version" foot={u.supported && (
         <>
           <button className="btn" onClick={() => check.mutate()} disabled={check.isPending || busy}>
@@ -476,7 +478,7 @@ function UpdatesTab() {
         {u.state === "available" && (u.commits?.length ?? 0) > 0 && (
           <div className="field">
             <span>{u.behind} new</span>
-            <ul className="stack" style={{ gap: 4 }}>
+            <ul className="stack gap-4">
               {u.commits!.map((c) => <li key={c.sha}><code className="faint">{short(c.sha)}</code> {c.message}</li>)}
             </ul>
           </div>
@@ -495,25 +497,36 @@ function UpdatesTab() {
           {u.token && <Notice hue="tasks" icon={CheckCircle2} title={{ keychain: "Saved in your keychain", env: "From the environment", gh: "From the GitHub CLI" }[u.token]} action={
             u.token === "keychain" && <button className="btn btn-sm" onClick={() => confirm("Remove the GitHub token?") && saveToken.mutate("")}>Remove</button>
           } />}
-          <form className="row" style={{ flexWrap: "nowrap" }} onSubmit={(e) => { e.preventDefault(); if (token.trim()) saveToken.mutate(token.trim()); }}>
+          <form className="row nowrap" onSubmit={(e) => { e.preventDefault(); if (token.trim()) saveToken.mutate(token.trim()); }}>
             <input className="input grow" type="password" autoComplete="off" spellCheck={false} placeholder={u.token ? "Replace token" : "github_pat_…"} value={token} onChange={(e) => setToken(e.target.value)} aria-label="GitHub token" />
             <button className="btn btn-primary" disabled={!token.trim() || saveToken.isPending}>Save</button>
           </form>
         </Section>
       )}
-    </div>
+    </>
   );
 }
 
+function ConnectionsTab({ s }: { s: Settings }) {
+  return <><Email s={s} /><Calendar s={s} /><Connections s={s} /></>;
+}
+
+function Advanced({ s }: { s: Settings }) {
+  return <><Model s={s} /><Customize s={s} /><UpdatesTab /></>;
+}
+
 export default function SettingsPage() {
-  const { tab = "company" } = useParams<{ tab: Tab }>();
+  const { tab = "company" } = useParams<{ tab: string }>();
   const { data, isLoading, error } = useQuery({ queryKey: ["settings"], queryFn: () => api.get<Settings>("/api/settings") });
-  const Body = { company: Company, brief: Brief, rules: Rules, email: Email, calendar: Calendar, connections: Connections, faq: FaqBot, playbooks: Playbooks, customize: Customize, model: Model, updates: UpdatesTab }[tab as Tab] ?? Company;
+  const tabs = useRef<HTMLElement>(null);
+  useEffect(() => { tabs.current?.querySelector(".active")?.scrollIntoView({ block: "nearest", inline: "nearest" }); }, [tab]);
+  if (MOVED[tab]) return <Navigate to={MOVED[tab]} replace />;
+  const Body = { company: Company, brief: Brief, rules: Rules, connections: ConnectionsTab, playbooks: Playbooks, advanced: Advanced }[tab as Tab] ?? Company;
   return (
     <>
-      <PageHeader area="settings" />
+      <PageHeader area="settings" actions={<ThemeSwitch />} />
       <div className="settings">
-        <nav className="settings-tabs" aria-label="Settings sections" data-area="settings">
+        <nav ref={tabs} className="settings-tabs" aria-label="Settings sections" data-area="settings">
           {TABS.map(([id, label]) => <NavLink key={id} to={`/settings/${id}`} className={tab === id ? "active" : undefined}>{label}</NavLink>)}
         </nav>
         <div className="grow">

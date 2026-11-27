@@ -5,7 +5,7 @@ import { api, getText, native, type AuditRow } from "../api";
 import { useOverview } from "../components/Shell";
 import { Chip, Empty, PageHeader, Segmented, SkeletonList, useToast } from "../components/ui";
 import { clock } from "../lib/format";
-import { agentName, humanize, outcome, tool } from "../lib/tools";
+import { agentName, humanize, outcome, showValue, tool } from "../lib/tools";
 
 export function ActivityRow({ row, compact }: { row: AuditRow; compact?: boolean }) {
   const { data: ov } = useOverview();
@@ -32,7 +32,7 @@ export function ActivityRow({ row, compact }: { row: AuditRow; compact?: boolean
                 {input.map(([k, v]) => (
                   <div key={k}>
                     <dt>{humanize(k)}</dt>
-                    <dd>{typeof v === "string" ? v : JSON.stringify(v)}</dd>
+                    <dd>{showValue(row.tool, k, v)}</dd>
                   </div>
                 ))}
               </dl>
@@ -42,7 +42,7 @@ export function ActivityRow({ row, compact }: { row: AuditRow; compact?: boolean
       </div>
       {!compact && (
         <button className="btn btn-ghost btn-sm btn-icon" onClick={() => setOpen(!open)} aria-expanded={open} aria-label={open ? "Hide details" : "Show details"}>
-          <ChevronDown size={17} style={{ rotate: open ? "180deg" : "0deg", transition: "rotate 200ms" }} />
+          <ChevronDown size={17} className="chev" data-open={open} />
         </button>
       )}
     </li>
@@ -113,7 +113,7 @@ export default function Activity() {
               </section>
             ))}
             {data.total > data.rows.length && (
-              <div style={{ padding: 16, textAlign: "center" }}>
+              <div className="pad-16 center">
                 <button className="btn" onClick={() => setLimit(limit + 200)}>Show older ({data.total - data.rows.length} more)</button>
               </div>
             )}

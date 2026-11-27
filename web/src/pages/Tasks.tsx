@@ -55,7 +55,7 @@ function GiveToBot({ task, onDone }: { task: Task; onDone: () => void }) {
   });
   return (
     <div className="give-bot" data-area="ask">
-      <div className="row" style={{ justifyContent: "space-between" }}>
+      <div className="row between">
         <strong>Give to a bot</strong>
         {task.handled_by && (
           <Link className="handled-by" to={`/ask/${task.handled_by.session_id}`}><Bot size={14} /> With {task.handled_by.agent}</Link>
@@ -151,7 +151,7 @@ function Recurring() {
   const remove = useMutation({ mutationFn: (s: Schedule) => api.del(`/api/schedules/${s.id}`), onSuccess: done, onError: fail });
   if (!data?.length) return null;
   return (
-    <div className="panel table-wrap" data-area="tasks" style={{ marginBottom: 16 }}>
+    <div className="panel table-wrap mb-16" data-area="tasks">
       <table className="table">
         <thead>
           <tr><th><Repeat size={14} /> Recurring</th><th>When</th><th>Next</th><th /></tr>
@@ -166,7 +166,7 @@ function Recurring() {
               <td>{s.when}</td>
               <td>{s.paused ? <Chip hue="neutral">Paused</Chip> : nextRun(s.next_run)}</td>
               <td>
-                <div className="row" style={{ gap: 4, justifyContent: "flex-end", flexWrap: "nowrap" }}>
+                <div className="row gap-4 end nowrap">
                   <button className="btn btn-ghost" title="Run now" aria-label={`Run ${s.name} now`} onClick={() => run.mutate(s)} disabled={run.isPending}><Zap size={15} /></button>
                   <button className="btn btn-ghost" title={s.paused ? "Resume" : "Pause"} aria-label={`${s.paused ? "Resume" : "Pause"} ${s.name}`} onClick={() => pause.mutate(s)}>{s.paused ? <Play size={15} /> : <Pause size={15} />}</button>
                   <button className="btn btn-ghost" title="Delete" aria-label={`Delete ${s.name}`} onClick={() => confirm(`Delete “${s.name}”?`) && remove.mutate(s)}><Trash2 size={15} /></button>
@@ -238,7 +238,7 @@ export default function Tasks() {
           { value: "list", label: <><List size={15} /> List</> },
           { value: "board", label: <><Columns3 size={15} /> Board</> },
         ]} />
-        <div className="search grow" style={{ minWidth: 180, maxWidth: 320 }}>
+        <div className="search grow search-sm">
           <Search size={16} />
           <input className="input" placeholder="Search tasks" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search tasks" />
         </div>
@@ -306,11 +306,11 @@ export default function Tasks() {
             return (
               <section key={col} className="board-col" data-area={STATUS[col].area}>
                 <h2><span className="swatch" /> {STATUS[col].label} <span className="faint">{items.length}</span></h2>
-                <div className="stack" style={{ gap: 8 }}>
+                <div className="stack gap-8">
                   {items.map((t) => (
                     <article key={t.id} className="board-card" onClick={() => setEditing(t)} tabIndex={0} onKeyDown={(e) => e.key === "Enter" && setEditing(t)}>
                       <strong>{t.title}</strong>
-                      <div className="row" style={{ gap: 8 }}>
+                      <div className="row gap-8">
                         <span className="faint grow">{t.owner}</span>
                         <DueLabel t={t} today={today} />
                       </div>

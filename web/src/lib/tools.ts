@@ -6,6 +6,53 @@ type ToolInfo = { label: string; area: Area | "neutral"; past: (i: any) => strin
 const q = (s: unknown) => (s ? `“${String(s)}”` : "");
 const list = (v: unknown) => (Array.isArray(v) ? v.join(", ") : String(v ?? ""));
 
+const and = (xs: string[], word = "and") => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} ${word} ${xs[xs.length - 1]}`);
+const AGE: Record<string, [string, string]> = { h: ["hour", "hours"], d: ["day", "days"], m: ["month", "months"], y: ["year", "years"] };
+const age = (n: string, u: string) => (n === "1" ? `the last ${AGE[u][0]}` : `the last ${n} ${AGE[u][1]}`);
+
+/** A Gmail search, said in words: "newer_than:1d -category:promotions" → "email from the last day, skipping promotions". */
+export function emailSearchWords(query: unknown): string {
+  let rest = String(query ?? "").trim();
+  if (!rest) return "email";
+  const kinds: string[] = [], skip: string[] = [], from: string[] = [], to: string[] = [], about: string[] = [], extra: string[] = [];
+  let when = "";
+  const take = (re: RegExp, fn: (...m: string[]) => void) => { rest = rest.replace(re, (...m) => { fn(...(m as string[])); return " "; }); };
+  // (is:unread OR is:important)
+  take(/\(\s*((?:-?is:\w+\s+OR\s+)+-?is:\w+)\s*\)/gi, (_, g) => kinds.push(and(g.split(/\s+OR\s+/i).map((x) => x.replace(/^-?is:/i, "")), "or")));
+  take(/(^|\s)newer_than:(\d+)([hdmy])/gi, (_, __, n, u) => { when = `from ${age(n, u.toLowerCase())}`; });
+  take(/(^|\s)older_than:(\d+)([hdmy])/gi, (_, __, n, u) => { when = `older than ${n} ${AGE[u.toLowerCase()][n === "1" ? 0 : 1]}`; });
+  take(/(^|\s)-category:(\w+)/gi, (_, __, c) => skip.push(c.toLowerCase()));
+  take(/(^|\s)category:(\w+)/gi, (_, __, c) => kinds.push(c.toLowerCase()));
+  take(/(^|\s)-is:(\w+)/gi, (_, __, c) => kinds.push(`not ${c.toLowerCase()}`));
+  take(/(^|\s)is:(\w+)/gi, (_, __, c) => kinds.push(c.toLowerCase()));
+  take(/(^|\s)from:("[^"]+"|\S+)/gi, (_, __, v) => from.push(v.replace(/"/g, "")));
+  take(/(^|\s)to:("[^"]+"|\S+)/gi, (_, __, v) => to.push(v.replace(/"/g, "")));
+  take(/(^|\s)subject:("[^"]+"|\S+)/gi, (_, __, v) => about.push(v.replace(/"/g, "")));
+  take(/(^|\s)has:attachment\b/gi, () => extra.push("with attachments"));
+  take(/(^|\s)(?:in|label):(\S+)/gi, (_, __, v) => { if (v.toLowerCase() !== "inbox") extra.push(`labelled ${v}`); });
+  const words = rest.replace(/\s+/g, " ").trim();
+  if (words) about.push(words.replace(/"/g, ""));
+  return [
+    [and(kinds), "email"].filter(Boolean).join(" "),
+    from.length && `from ${and(from, "or")}`,
+    to.length && `to ${and(to, "or")}`,
+    when,
+    ...extra,
+    about.length && `about ${about.map((x) => q(x)).join(" ")}`,
+    skip.length && `, skipping ${and(skip)}`,
+  ].filter(Boolean).join(" ").replace(/ ,/g, ",");
+}
+
+/** Any action input value, readable. */
+export function showValue(toolName: string, key: string, v: unknown): string {
+  if (key === "query" && toolName === "search_email") return emailSearchWords(v);
+  if (typeof v === "boolean") return v ? "Yes" : "No";
+  if (v == null || v === "") return "–";
+  if (Array.isArray(v)) return v.map((x) => (typeof x === "object" ? showValue(toolName, "", x) : String(x))).join(", ");
+  if (typeof v === "object") return Object.entries(v as Record<string, unknown>).map(([k, x]) => `${humanize(k)}: ${showValue(toolName, k, x)}`).join(" · ");
+  return String(v);
+}
+
 export const TOOLS: Record<string, ToolInfo> = {
   get_current_time: { label: "Check the date and time", area: "neutral", past: () => "Checked the date and time", ask: "check the date and time" },
   remember: { label: "Save a note", area: "notes", past: (i) => `Saved a note about ${i?.topic ?? "something"}`, ask: "save a note" },
@@ -15,7 +62,7 @@ export const TOOLS: Record<string, ToolInfo> = {
   create_task: { label: "Add a task", area: "tasks", past: (i) => `Added the task ${q(i?.title)}${i?.owner ? ` for ${i.owner}` : ""}`, ask: "add a task" },
   list_tasks: { label: "Check the task list", area: "tasks", past: (i) => (i?.owner ? `Checked ${i.owner}'s tasks` : "Checked the task list"), ask: "check the task list" },
   update_task: { label: "Update a task", area: "tasks", past: (i) => `Updated a task${i?.status ? ` to “${statusWord(i.status)}”` : ""}`, ask: "update a task" },
-  search_email: { label: "Search email", area: "inbox", past: (i) => `Searched email${i?.query ? ` for ${q(i.query)}` : ""}`, ask: "search email" },
+  search_email: { label: "Search email", area: "inbox", past: (i) => `Searched ${emailSearchWords(i?.query)}`, ask: "search email" },
   read_email: { label: "Read an email", area: "inbox", past: () => "Read an email", ask: "read an email" },
   draft_email: { label: "Write an email draft", area: "inbox", past: (i) => `Saved a draft to ${list(i?.to)}${i?.subject ? `: ${q(i.subject)}` : ""}`, ask: "save an email draft" },
   send_email: { label: "Send an email", area: "inbox", past: (i) => `Sent an email to ${list(i?.to)}${i?.subject ? `: ${q(i.subject)}` : ""}`, ask: "send an email" },

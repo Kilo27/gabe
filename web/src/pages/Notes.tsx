@@ -53,7 +53,7 @@ export default function Notes() {
     <>
       <PageHeader area="notes" actions={<button className="btn btn-primary" data-area="notes" onClick={() => setEditing({})}><Plus size={17} /> Add note</button>} />
       <div className="toolbar">
-        <div className="search grow" style={{ maxWidth: 420 }}>
+        <div className="search grow search-md">
           <Search size={16} />
           <input className="input" placeholder="Search notes" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search notes" />
         </div>
@@ -72,7 +72,7 @@ export default function Notes() {
                 <button className="btn btn-ghost btn-sm btn-icon btn-danger" onClick={() => confirm(`Delete the note on “${n.topic}”?`) && del.mutate(n.id)} aria-label={`Delete note on ${n.topic}`}><Trash2 size={15} /></button>
               </header>
               <p>{n.note}</p>
-              <footer className="row" style={{ gap: 6 }}>
+              <footer className="row gap-8">
                 {n.tags.map((t) => <Chip key={t} hue="notes">{t}</Chip>)}
                 <span className="grow" />
                 <span className="faint">{when(n.edited ?? n.created)}</span>
