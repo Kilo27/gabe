@@ -2,10 +2,11 @@ import type { Agent } from "../api";
 import type { Area } from "./areas";
 import { tool } from "./tools";
 
-const FALLBACK: Area[] = ["notes", "activity", "settings", "inbox", "tasks"];
+export type AgentHue = Area | "neutral";
 
-/** Each agent's colour: Gabe blue, the brief writer yellow, a specialist the colour of the work it mostly does. */
-export function agentHue(a: Agent, all: Agent[]): Area {
+/** Each agent's colour: Gabe blue, the brief writer yellow, a specialist the colour of the work it mostly does.
+ *  A specialist whose kind of work already has an agent stays neutral rather than borrowing an unrelated area's hue. */
+export function agentHue(a: Agent, all: Agent[]): AgentHue {
   if (a.kind === "chief") return "ask";
   if (a.kind === "briefing") return "today";
   const counts: Record<string, number> = {};
@@ -17,8 +18,7 @@ export function agentHue(a: Agent, all: Agent[]): Area {
   // Earlier agents keep their colour when new ones are added: only look at those listed before this one.
   const before = all.slice(0, all.indexOf(a)).filter((o) => o.kind === "member");
   const taken = new Set(before.map((o) => agentHue(o, all)));
-  if (best && !taken.has(best)) return best;
-  return FALLBACK.find((h) => !taken.has(h)) ?? "notes";
+  return best && !taken.has(best) ? best : "neutral";
 }
 
 export function agentLabel(a: Agent) {

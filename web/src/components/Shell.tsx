@@ -1,13 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, MessageCircleQuestion, Monitor, Moon, MoreHorizontal, ShieldCheck, Sun, X } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { api, type Approval, type Notice, type Overview } from "../api";
 import { AREAS, type Area } from "../lib/areas";
 
 type Theme = "system" | "light" | "dark";
 
-function useTheme(): [Theme, (t: Theme) => void] {
+export function useTheme(): [Theme, (t: Theme) => void] {
   const [theme, setTheme] = useState<Theme>(() => {
     try {
       const t = localStorage.getItem("gabe-theme");
@@ -28,6 +28,19 @@ function useTheme(): [Theme, (t: Theme) => void] {
     }
   }, [theme]);
   return [theme, setTheme];
+}
+
+export function ThemeSwitch() {
+  const [theme, setTheme] = useTheme();
+  return (
+    <div className="segmented" role="group" aria-label="Colour theme">
+      {([["light", Sun, "Light"], ["system", Monitor, "Auto"], ["dark", Moon, "Dark"]] as const).map(([v, Icon, label]) => (
+        <button key={v} type="button" aria-pressed={theme === v} onClick={() => setTheme(v)}>
+          <Icon size={14} /> {label}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 export function useOverview() {
@@ -131,10 +144,10 @@ function JobWatcher() {
   );
 }
 
-const PRIMARY: Area[] = ["ask", "today", "approvals", "tasks"];
+const PRIMARY: Area[] = ["today", "ask", "approvals", "tasks"];
 
 export function Shell({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useTheme();
+  useTheme();  // applies the saved theme; the switch is in Settings
   const { data } = useOverview();
   const [more, setMore] = useState(false);
   const loc = useLocation();
@@ -152,21 +165,13 @@ export function Shell({ children }: { children: ReactNode }) {
           <div className="brand-co">{data?.company ?? "Your chief of staff"}</div>
         </div>
         <nav className="nav">
-          {AREAS.slice(0, 4).map((a) => <NavItem key={a.id} id={a.id} />)}
-          <div className="nav-sep" />
-          {AREAS.slice(4, 7).map((a) => <NavItem key={a.id} id={a.id} />)}
-          <div className="nav-sep" />
-          <NavItem id="settings" />
+          {AREAS.map((a, i) => (
+            <Fragment key={a.id}>
+              {i > 0 && AREAS[i - 1].group !== a.group && <div className="nav-sep" />}
+              <NavItem id={a.id} />
+            </Fragment>
+          ))}
         </nav>
-        <div className="rail-foot">
-          <div className="theme-switch" role="group" aria-label="Colour theme">
-            {([["light", Sun, "Light"], ["system", Monitor, "Auto"], ["dark", Moon, "Dark"]] as const).map(([v, Icon, label]) => (
-              <button key={v} aria-pressed={theme === v} onClick={() => setTheme(v)} title={`${label} theme`}>
-                <Icon size={14} /> {label}
-              </button>
-            ))}
-          </div>
-        </div>
       </aside>
 
       <main className="main">
@@ -191,15 +196,8 @@ export function Shell({ children }: { children: ReactNode }) {
           <div className="sheet-backdrop" style={{ zIndex: 35 }} onClick={() => setMore(false)} />
           <div className="more-sheet">
             <nav className="nav">
-              {AREAS.slice(4).map((a) => <NavItem key={a.id} id={a.id} />)}
+              {AREAS.filter((a) => !PRIMARY.includes(a.id)).map((a) => <NavItem key={a.id} id={a.id} />)}
             </nav>
-            <div className="theme-switch" role="group" aria-label="Colour theme" style={{ marginTop: 8 }}>
-              {([["light", Sun, "Light"], ["system", Monitor, "Auto"], ["dark", Moon, "Dark"]] as const).map(([v, Icon, label]) => (
-                <button key={v} aria-pressed={theme === v} onClick={() => setTheme(v)}>
-                  <Icon size={14} /> {label}
-                </button>
-              ))}
-            </div>
           </div>
         </>
       )}

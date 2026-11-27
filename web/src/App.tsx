@@ -1,4 +1,4 @@
-import { Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 import { Shell } from "./components/Shell";
 import Activity from "./pages/Activity";
 import Agents from "./pages/Agents";
@@ -14,8 +14,9 @@ export default function App() {
   return (
     <Shell>
       <Routes>
-        <Route path="/" element={<Agents />} />
-        <Route path="/today" element={<Today />} />
+        <Route path="/" element={<Today />} />
+        <Route path="/today" element={<Navigate to="/" replace />} />
+        <Route path="/agents" element={<Agents />} />
         <Route path="/ask" element={<Chat />} />
         <Route path="/ask/:id" element={<Chat />} />
         <Route path="/approvals" element={<Approvals />} />
@@ -25,7 +26,7 @@ export default function App() {
         <Route path="/activity" element={<Activity />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/settings/:tab" element={<SettingsPage />} />
-        <Route path="*" element={<Agents />} />
+        <Route path="*" element={<Today />} />
       </Routes>
     </Shell>
   );

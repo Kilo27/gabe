@@ -7,7 +7,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { api, native, type Approval, type AuditRow, type CalendarEvent, type CalendarStatus, type Job, type Session } from "../api";
 import { ApprovalCard } from "../components/ApprovalCard";
 import { useOverview } from "../components/Shell";
-import { Empty, Markdown, Notice, PageHeader, Skeleton, SkeletonList, useToast } from "../components/ui";
+import { Chip, Empty, Markdown, Notice, PageHeader, Skeleton, SkeletonList, useToast } from "../components/ui";
 import { clock, greeting, longDate, plural } from "../lib/format";
 import { ActivityRow } from "./Activity";
 
@@ -46,13 +46,13 @@ export function AskBox({ autoFocus, compact }: { autoFocus?: boolean; compact?: 
           </button>
         </div>
       </form>
-      <div className="suggestions" aria-label="Ideas">
+      {!compact && <div className="suggestions" aria-label="Ideas">
         {SUGGESTIONS.map((s) => (
           <button key={s} type="button" className="suggestion" onClick={() => setText(s)}>
             <Sparkles size={14} /> {s}
           </button>
         ))}
-      </div>
+      </div>}
     </div>
   );
 }
@@ -81,7 +81,7 @@ function NeedsYou() {
       <div className="panel-head" data-area="approvals">
         <span className="swatch" />
         <h2 id="needs-you">Needs you</h2>
-        {pending.length + rows.length > 0 && <span className="head-count">{data.approvals_pending + t.overdue}</span>}
+        {data.approvals_pending > 0 && <span className="head-count" aria-label={`${data.approvals_pending} waiting for your OK`}>{data.approvals_pending}</span>}
         <span className="spacer" />
         <Link to="/approvals" className="btn btn-ghost btn-sm">Approvals <ArrowRight size={15} /></Link>
       </div>
@@ -113,6 +113,9 @@ function NeedsYou() {
     </section>
   );
 }
+
+/** The brief's own "# Daily Briefing: <date>" line repeats the date picker above it. */
+const withoutTitle = (md: string) => md.replace(/^\s*# .*\n+/, "");
 
 function Brief() {
   const { data: ov } = useOverview();
@@ -157,6 +160,8 @@ function Brief() {
         <span className="swatch" />
         <h2 id="brief-title">Daily brief</h2>
         <span className="spacer" />
+        {shown && ov && shown !== ov.today && <Chip hue="neutral">Not today's</Chip>}
+        {briefs.data && briefs.data.length === 1 && shown && <span className="faint">{longDate(shown)}</span>}
         {briefs.data && briefs.data.length > 1 && (
           <select className="select brief-pick" aria-label="Show the brief from another day" value={shown ?? ""} onChange={(e) => setDate(e.target.value)}>
             {briefs.data.map((b) => (
@@ -186,10 +191,7 @@ function Brief() {
           } />
         ) : (
           <>
-            {shown !== ov?.today && (
-              <p className="faint" style={{ marginBottom: 12 }}>This brief is from {longDate(shown)}.</p>
-            )}
-            {brief.data && <Markdown text={brief.data.text} />}
+            {brief.data && <Markdown text={withoutTitle(brief.data.text)} />}
           </>
         )}
       </div>
@@ -292,12 +294,9 @@ function Recent() {
 }
 
 export default function Today() {
-  const { data } = useOverview();
   return (
     <>
-      <PageHeader area="today" title={greeting()}>
-        {data ? longDate(data.today) : null}
-      </PageHeader>
+      <PageHeader area="today" title={greeting()} />
       <div className="today-grid">
         <div className="stack">
           <NeedsYou />

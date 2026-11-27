@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, Download, ExternalLink, Loader2, Plus, Ref
 import { useEffect, useState, type ReactNode } from "react";
 import { NavLink, useParams } from "react-router-dom";
 import { GoogleButton } from "../components/GoogleButton";
+import { ThemeSwitch } from "../components/Shell";
 import { api, native, type Decision, type Job, type Settings, type Updates } from "../api";
 import { Field, Markdown, Notice, PageHeader, Segmented, SkeletonList, useToast } from "../components/ui";
 import { DECISION_WORDS, RISK, humanize, tool } from "../lib/tools";
@@ -511,7 +512,7 @@ export default function SettingsPage() {
   const Body = { company: Company, brief: Brief, rules: Rules, email: Email, calendar: Calendar, connections: Connections, faq: FaqBot, playbooks: Playbooks, customize: Customize, model: Model, updates: UpdatesTab }[tab as Tab] ?? Company;
   return (
     <>
-      <PageHeader area="settings" />
+      <PageHeader area="settings" actions={<ThemeSwitch />} />
       <div className="settings">
         <nav className="settings-tabs" aria-label="Settings sections" data-area="settings">
           {TABS.map(([id, label]) => <NavLink key={id} to={`/settings/${id}`} className={tab === id ? "active" : undefined}>{label}</NavLink>)}

@@ -202,7 +202,7 @@ export default function Chat() {
   return (
     <>
       <div className={id ? "hide-sm" : undefined}>
-        <PageHeader area="ask" title="Conversations" />
+        <PageHeader area="ask" />
       </div>
       <div className={`chat${id ? " chat-open" : ""}`}>
         <aside className="panel convo-list" aria-label="Conversations" data-area="ask">
