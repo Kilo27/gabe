@@ -7,6 +7,7 @@ import { api, native, type Decision, type Job, type Settings, type Updates } fro
 import { Field, Markdown, Notice, PageHeader, Segmented, SkeletonList, useToast } from "../components/ui";
 import { DECISION_WORDS, RISK, humanize, tool } from "../lib/tools";
 import FaqBot from "./FaqBot";
+import SlackWatchPage from "./SlackWatch";
 
 const TABS = [
   ["company", "Company"],
@@ -14,6 +15,7 @@ const TABS = [
   ["rules", "Approval rules"],
   ["email", "Email"],
   ["calendar", "Calendar"],
+  ["slack", "Slack"],
   ["connections", "Connections"],
   ["faq", "FAQ bot"],
   ["playbooks", "Playbooks"],
@@ -508,7 +510,7 @@ function UpdatesTab() {
 export default function SettingsPage() {
   const { tab = "company" } = useParams<{ tab: Tab }>();
   const { data, isLoading, error } = useQuery({ queryKey: ["settings"], queryFn: () => api.get<Settings>("/api/settings") });
-  const Body = { company: Company, brief: Brief, rules: Rules, email: Email, calendar: Calendar, connections: Connections, faq: FaqBot, playbooks: Playbooks, customize: Customize, model: Model, updates: UpdatesTab }[tab as Tab] ?? Company;
+  const Body = { company: Company, brief: Brief, rules: Rules, email: Email, calendar: Calendar, connections: Connections, slack: SlackWatchPage, faq: FaqBot, playbooks: Playbooks, customize: Customize, model: Model, updates: UpdatesTab }[tab as Tab] ?? Company;
   return (
     <>
       <PageHeader area="settings" />

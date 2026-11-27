@@ -106,11 +106,12 @@ class ToolRegistry:
         input_schema: dict[str, Any],
         risk: Risk = Risk.READ,
         integration: str = "core",
+        ask_first: bool = False,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """Decorator form: @registry.add("name", "desc", schema(...), Risk.WRITE)."""
 
         def wrap(fn: Callable[..., Any]) -> Callable[..., Any]:
-            self.register(Tool(name, description, input_schema, fn, risk, integration))
+            self.register(Tool(name, description, input_schema, fn, risk, integration, ask_first))
             return fn
 
         return wrap

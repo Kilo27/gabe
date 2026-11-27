@@ -89,12 +89,13 @@ export type EmailStatus = { state: "off" | "practice" | "missing_file" | "discon
 
 export type Task = {
   id: string; title: string; owner: string; due: string | null; notes: string; project: string;
-  status: TaskStatus; created: string; source?: string;
+  status: TaskStatus; created: string; source?: string; link?: string;
   handled_by?: { agent: string; agent_id: string; session_id: string; at: string };
 };
 export type Schedule = {
   id: string; name: string; instruction: string; when: string; every_minutes: number | null; at: string | null;
   days: string[]; between: string | null; paused: boolean; next_run: string; last_run: string | null; runs: number; session_id: string | null;
+  member?: string | null; member_name?: string | null;
 };
 export type TaskStatus = "open" | "in_progress" | "blocked" | "done" | "cancelled";
 
@@ -175,6 +176,14 @@ export type Faq = {
   };
   status: { state: "off" | "missing_tokens" | "connecting" | "connected" | "error"; error?: string; workspace?: string };
   reply_rule: Decision; questions: FaqQuestion[]; manifest: string; desktop: boolean;
+};
+
+export type SlackWatch = {
+  enabled: boolean; manifest: string; desktop: boolean; task_rule: Decision; token_set?: boolean;
+  settings?: { direct_messages: boolean; channels: string[]; every_minutes: number; note_tasks: boolean; task_owner: string; model: string };
+  status: { state: "off" | "missing_token" | "watching" | "error"; error?: string; user?: string; workspace?: string; last_scan?: string;
+    conversations?: number; missing?: string[]; new_messages?: number; tasks_noted?: number; next_scan?: string };
+  recent?: { ts: string; where: string; who: string; text: string; mine: boolean }[];
 };
 
 export type Commit = { sha: string; message: string; date: string };

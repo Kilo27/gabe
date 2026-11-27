@@ -123,7 +123,10 @@ function TaskSheet({ task, owners, projects, onClose }: { task: Partial<Task> | 
           <textarea className="textarea" value={f.notes ?? ""} onChange={(e) => set("notes", e.target.value)} />
         </Field>
         {!isNew && (
-          <p className="faint">{task?.source ?? "Created by Gabe"} · {when(task?.created)}</p>
+          <p className="faint">
+            {task?.source === "slack" ? "From Slack" : task?.source ?? "Created by Gabe"} · {when(task?.created)}
+            {task?.link && <> · <a className="link-btn" href={task.link} target="_blank" rel="noreferrer">Open in Slack</a></>}
+          </p>
         )}
         {!isNew && task?.id && <GiveToBot task={task as Task} onDone={onClose} />}
         <datalist id="owners">{owners.map((o) => <option key={o} value={o} />)}</datalist>
@@ -154,7 +157,7 @@ function Recurring() {
     <div className="panel table-wrap" data-area="tasks" style={{ marginBottom: 16 }}>
       <table className="table">
         <thead>
-          <tr><th><Repeat size={14} /> Recurring</th><th>When</th><th>Next</th><th /></tr>
+          <tr><th><Repeat size={14} /> Recurring</th><th>Who</th><th>When</th><th>Next</th><th /></tr>
         </thead>
         <tbody>
           {data.map((s) => (
@@ -163,6 +166,7 @@ function Recurring() {
                 {s.session_id ? <Link className="link-btn" to={`/ask/${s.session_id}`}>{s.name}</Link> : s.name}
                 <div className="faint">{s.instruction}</div>
               </td>
+              <td>{s.member_name ?? "Gabe"}</td>
               <td>{s.when}</td>
               <td>{s.paused ? <Chip hue="neutral">Paused</Chip> : nextRun(s.next_run)}</td>
               <td>

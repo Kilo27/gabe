@@ -26,6 +26,7 @@ from gabe.app import team_skills
 from gabe.briefing import DAYS, BriefingSettings, build_briefer, company_tz, email_briefing, next_run, run_briefing
 from gabe.claude_code import find_claude, open_in_terminal
 from gabe.faq.slack import BOT_NAME as FAQ_BOT, REPLY_TOOL, SlackService
+from gabe.slack_watch import WATCHER as SLACK_WATCHER, SlackWatchService
 from gabe.integrations import IntegrationContext, load_integrations
 from gabe.integrations._store import JsonStore
 from gabe.policy import Declined, Policy
@@ -47,7 +48,8 @@ def faq_provider(cfg):
 
 def create_app(config_path: str | Path, token: str | None = None, desktop: bool = False,
                resume_when: "threading.Event | None" = None, run_schedules: bool = True,
-               run_slack: bool = True, run_updates: bool | None = None) -> FastAPI:
+               run_slack: bool = True, run_updates: bool | None = None,
+               slack_reader_factory=None) -> FastAPI:
     """`token`: when set, every /api call must carry it (X-Gabe-Token). The desktop app sets a
     fresh one per launch so other programs and web pages on this computer can't use the API."""
     state = WebState(Path(config_path))
@@ -109,6 +111,45 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
 
     if run_slack:
         threading.Thread(target=slack_bot, daemon=True, name="slack-faq").start()
+
+    def watch_approver(tool, args):
+        """A task noted from Slack waits on the Approvals screen when the create_task rule says ask."""
+        rec = state.approvals.create(
+            session_id="", message_id="", session_title="Slack", agent=SLACK_WATCHER, tool=tool.name,
+            risk=tool.risk.value, integration=tool.integration, description=tool.description,
+            args=dict(args), reason="Noted from a Slack message.",
+        )
+        decided = state.approvals.wait(rec["id"])
+        if decided.get("status") == "approved":
+            args.clear()
+            args.update(decided["args"])
+            return True
+        return Declined(decided.get("note", ""))
+
+    def tasks_noted(tasks):
+        titles = "; ".join(t["title"] for t in tasks[:3]) + (f" and {len(tasks) - 3} more" if len(tasks) > 3 else "")
+        state.notify("done", f"{len(tasks)} {'task' if len(tasks) == 1 else 'tasks'} from Slack", titles)
+
+    watch_kw = {"reader_factory": slack_reader_factory} if slack_reader_factory else {}
+    slack_watch = SlackWatchService(state.config, approver=watch_approver, on_tasks=tasks_noted,
+                                    on_usage=state.record_usage, provider_factory=lambda cfg: faq_provider(cfg),
+                                    **watch_kw)
+    app.state.slack_watch = slack_watch
+
+    def watch_slack():
+        # Reads the user's own Slack on its timetable (gabe/slack_watch.py) while the app is open.
+        if resume_when is not None:
+            resume_when.wait()
+        while True:
+            try:
+                if not state.config().paused:
+                    slack_watch.tick()
+            except Exception:
+                log.exception("Slack watch failed")
+            time.sleep(30)
+
+    if run_slack:
+        threading.Thread(target=watch_slack, daemon=True, name="slack-watch").start()
 
     def idle() -> bool:
         """Nothing would be cut off by Gabe closing for an update."""
@@ -485,11 +526,14 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
 
     @app.get("/api/schedules")
     def list_schedules():
-        return schedules.list_all(state.config())
+        cfg = state.config()
+        team = cfg.team()
+        return [{**x, "member_name": (team.get(x["member"]).name if team.get(x["member"]) else x["member"])
+                 if x.get("member") else None} for x in schedules.list_all(cfg)]
 
     @app.patch("/api/schedules/{sched_id}")
     def edit_schedule(sched_id: str, payload: dict = Body(...)):
-        allowed = {k: payload[k] for k in ("paused", "name", "instruction", "every_minutes", "at", "days", "between")
+        allowed = {k: payload[k] for k in ("paused", "name", "instruction", "every_minutes", "at", "days", "between", "member")
                    if k in payload}
         try:
             s = schedules.update(state.config(), sched_id, **allowed)
@@ -1402,6 +1446,110 @@ def create_app(config_path: str | Path, token: str | None = None, desktop: bool 
             f"{k.split('_')[1].lower()} {'set' if v else 'removed'}" for k, v in changes.items())})
         resync_slack()
         return faq()
+
+    # -- the user's own Slack (gabe/slack_watch.py) -----------------------------------
+
+    from gabe import slack_watch as sw
+
+    def edit_slack(fn) -> None:
+        """Change the slack integration's settings in gabe.yaml (adding it if needed)."""
+        def edit(raw):
+            items = raw.setdefault("integrations", []) or []
+            raw["integrations"] = items
+            for i, it in enumerate(items):
+                if it == sw.INTEGRATION or (isinstance(it, dict) and it.get("name") == sw.INTEGRATION):
+                    if not isinstance(it, dict):
+                        it = items[i] = {"name": sw.INTEGRATION, "settings": {}}
+                    it["settings"] = it.get("settings") or {}
+                    fn(it["settings"])
+                    return
+            entry = {"name": sw.INTEGRATION, "settings": {}}
+            fn(entry["settings"])
+            items.append(entry)
+        state.edit_config(edit)
+
+    @app.get("/api/slack")
+    def slack_info():
+        cfg = state.config()
+        s = sw.WatchSettings.from_config(cfg)
+        manifest = json.loads(json.dumps(MANIFEST))
+        manifest["display_information"]["name"] = cfg.assistant_name
+        manifest["features"]["bot_user"]["display_name"] = cfg.assistant_name
+        manifest["oauth_config"]["scopes"]["user"] = sw.USER_SCOPES
+        out = {"enabled": s is not None, "manifest": json.dumps(manifest, indent=2), "desktop": desktop,
+               "status": slack_watch.status(),
+               "task_rule": Policy.from_config(cfg.policy).decide(sw.NOTE_TOOL).value}
+        if s is not None:
+            out.update(settings=s.to_dict(), token_set=bool(s.user_token),
+                       recent=[{k: m[k] for k in ("ts", "where", "who", "text", "mine")}
+                               for m in sw.recent_messages(cfg, 24)[-30:]][::-1])
+        return out
+
+    @app.post("/api/slack/enable")
+    def slack_enable():
+        if sw.WatchSettings.from_config(state.config()) is None:
+            edit_slack(lambda st: st.update(sw.WatchSettings().to_dict()))
+            person_audit("edit_settings", {"section": "slack", "action": "turned on"})
+        return slack_info()
+
+    @app.put("/api/slack/settings")
+    def slack_save(payload: dict = Body(...)):
+        current = sw.WatchSettings.from_config(state.config())
+        if current is None:
+            bad("Slack isn't turned on.", 409)
+        try:
+            every = int(payload.get("every_minutes", current.every_minutes))
+        except (TypeError, ValueError):
+            bad("Minutes must be a number.")
+        if every < 5:
+            bad("Check at most every 5 minutes.")
+        model = str(payload.get("model", current.model))
+        if model not in ("haiku", "sonnet", "opus"):
+            bad("Unknown model.")
+        new = sw.WatchSettings(
+            direct_messages=bool(payload.get("direct_messages", current.direct_messages)),
+            channels=[str(c).strip() for c in payload.get("channels", current.channels) if str(c).strip()],
+            every_minutes=every,
+            note_tasks=bool(payload.get("note_tasks", current.note_tasks)),
+            task_owner=str(payload.get("task_owner", current.task_owner)).strip(),
+            model=model,
+        )
+        edit_slack(lambda st: st.update(new.to_dict()))
+        person_audit("edit_settings", {"section": "slack"})
+        return slack_info()
+
+    @app.put("/api/slack/token")
+    def slack_token(payload: dict = Body(...)):
+        """The user token goes in the OS keychain (desktop app), never in gabe.yaml."""
+        value = str(payload.get("user_token") or "").strip()
+        if value and (not value.startswith("xoxp-") or any(c.isspace() for c in value)):
+            bad("The user token starts with xoxp-")
+        try:
+            from gabe.desktop import set_secret
+
+            set_secret(sw.USER_TOKEN_ENV, value or None)
+        except Exception:
+            if desktop:
+                bad("Couldn't save the token to the keychain.")
+            if value:  # browser/dev mode without a keychain: this run only
+                os.environ[sw.USER_TOKEN_ENV] = value
+            else:
+                os.environ.pop(sw.USER_TOKEN_ENV, None)
+        person_audit("edit_settings", {"section": "slack", "action": f"user token {'set' if value else 'removed'}"})
+        if value:
+            threading.Thread(target=lambda: slack_watch.tick(force=True), daemon=True, name="slack-watch-now").start()
+        return slack_info()
+
+    @app.post("/api/slack/scan")
+    def slack_scan():
+        """Check Slack now."""
+        if sw.WatchSettings.from_config(state.config()) is None:
+            bad("Slack isn't turned on.", 409)
+        result = slack_watch.tick(force=True)
+        st = slack_watch.status()
+        if result is None and st.get("state") == "error":
+            bad(st.get("error") or "Couldn't read Slack.", 502)
+        return slack_info()
 
     # -- agents ----------------------------------------------------------------
     # Gabe, the briefing writer and every team member (config/team.yaml), as one list.

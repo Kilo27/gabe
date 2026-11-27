@@ -708,8 +708,10 @@ class WebState:
         it was skipped because its last run hasn't finished."""
         cfg = self.config()
         sid = s.get("session_id")
-        if not sid or self.sessions.get(sid) is None:
-            sid = self.sessions.create(title=s["name"])["id"]
+        member = s.get("member") or None
+        existing = self.sessions.get(sid) if sid else None
+        if existing is None or existing.get("agent") != member:
+            sid = self.sessions.create(title=s["name"], agent=member)["id"]
             self.sessions._store(sid).update(lambda d: d.update(schedule_id=s["id"]))
         try:
             self.sessions.forget(sid)  # every run starts fresh

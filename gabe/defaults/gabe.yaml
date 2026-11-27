@@ -46,6 +46,14 @@ integrations:
   #       answer: everyone      # everyone | external (guests and people from other workspaces)
   #       staff: []             # Slack member IDs that are never answered
   #       unanswered: {notify_channel: "#support-team", create_task: true, task_owner: Support}
+  # Your own Slack (Settings → Slack, docs/SLACK.md): DMs, group DMs and chosen channels feed the
+  # daily brief, and what people ask of you becomes tasks. Token: SLACK_USER_TOKEN (keychain in the app).
+  # - name: slack
+  #   settings:
+  #     direct_messages: true
+  #     channels: ["#leadership"]
+  #     every_minutes: 15
+  #     note_tasks: true          # follows the create_task approval rule
   # MCP servers (tools become <server>__<tool>; external unless set otherwise):
   # - name: mcp
   #   settings:
