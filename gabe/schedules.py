@@ -155,15 +155,29 @@ def _public(s: dict[str, Any]) -> dict[str, Any]:
     return {**s, "when": describe(s)}
 
 
+def _check_member(cfg: Config, member: str | None) -> str | None:
+    """A team member a job is given to, checked (None: Gabe runs it)."""
+    member = (member or "").strip() or None
+    if member is None:
+        return None
+    team = cfg.team()
+    if team.get(member) is None:
+        ids = ", ".join(m.id for m in team.members if team.is_working(m.id)) or "nobody yet"
+        raise ValueError(f"'{member}' isn't on the team ({ids}).")
+    return member
+
+
 def create(cfg: Config, name: str, instruction: str, every_minutes: int | None = None, at: str | None = None,
-           days: list[str] | None = None, between: str | None = None, created_by: str = "") -> dict[str, Any]:
+           days: list[str] | None = None, between: str | None = None, created_by: str = "",
+           member: str | None = None) -> dict[str, Any]:
     if not instruction.strip():
         raise ValueError("Say what to do on each run.")
+    member = _check_member(cfg, member)
     timing = normalise(every_minutes, at, days, between)
     now = _now(cfg)
     s = {"id": uuid.uuid4().hex[:8], "name": (name.strip() or instruction.strip())[:60], "instruction": instruction.strip(),
          **timing, "paused": False, "created": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-         "created_by": created_by, "last_run": None, "runs": 0, "session_id": None}
+         "created_by": created_by, "last_run": None, "runs": 0, "session_id": None, "member": member}
     s["next_run"] = next_after(s, now).isoformat(timespec="seconds")
     store(cfg).update(lambda d: d["schedules"].append(s))
     return _public(s)
@@ -190,6 +204,10 @@ def update(cfg: Config, id: str, **changes: Any) -> dict[str, Any]:
         for k in ("name", "instruction"):
             if changes.get(k):
                 s[k] = str(changes[k]).strip()
+        if changes.get("member") is not None:  # "" or "chief" hands it back to Gabe
+            new = None if changes["member"] in ("", "chief") else _check_member(cfg, changes["member"])
+            if new != s.get("member"):
+                s["member"], s["session_id"] = new, None  # a new owner gets its own conversation
         if changes.get("paused") is not None:
             was = s.get("paused")
             s["paused"] = bool(changes["paused"])
@@ -260,20 +278,29 @@ _TIMING = {
 
 
 def schedule_tools(cfg: Config, created_by: str) -> list[Tool]:
+    team = cfg.team()
+    members = sorted(m.id for m in team.members if team.is_working(m.id))
+    assign = {"assign_to": {"type": "string", **({"enum": members} if members else {}),
+                            "description": "Team member who owns this as a standing duty and runs it on its own "
+                                           "(id). Leave out to run it yourself. Give recurring work to the member "
+                                           "whose job it is."}}
+
     def schedule_job(name: str, instruction: str, every_minutes: int | None = None, at: str | None = None,
-                     days: list[str] | None = None, between: str | None = None):
+                     days: list[str] | None = None, between: str | None = None, assign_to: str | None = None):
         try:
-            s = create(cfg, name, instruction, every_minutes, at, days, between, created_by=created_by)
+            s = create(cfg, name, instruction, every_minutes, at, days, between, created_by=created_by,
+                       member=assign_to)
         except ValueError as e:
             return f"Not scheduled: {e}"
-        return {**s, "note": f"Scheduled {s['when']} (company timezone). First run: {s['next_run']}."}
+        who = f" {team.get(s['member']).name} runs it." if s.get("member") else ""
+        return {**s, "note": f"Scheduled {s['when']} (company timezone). First run: {s['next_run']}.{who}"}
 
     def list_schedules():
         return list_all(cfg) or "No recurring jobs."
 
-    def update_schedule(id: str, **changes):
+    def update_schedule(id: str, assign_to: str | None = None, **changes):
         try:
-            return update(cfg, id, **changes)
+            return update(cfg, id, member=assign_to, **changes)
         except (KeyError, ValueError) as e:
             return str(e).strip("'\"")
 
@@ -290,7 +317,8 @@ def schedule_tools(cfg: Config, created_by: str) -> list[Tool]:
             description=(
                 "Set up a recurring job that runs on a timetable, e.g. 'check my email every half hour' "
                 "or 'every Monday at 9, chase overdue tasks'. Use it whenever the user wants something "
-                "done repeatedly or at set times; do it yourself, don't delegate it. Each run starts "
+                "done repeatedly or at set times, and to give a team member a standing duty it runs on its "
+                "own (assign_to). Set it up yourself, don't delegate the setting up. Each run starts "
                 "fresh without this conversation, so write `instruction` as a complete, standalone "
                 "request (what to do, what counts as worth reporting). Runs are quiet when there's "
                 "nothing to report. Times are in the company timezone. Runs while the Gabe app is open; "
@@ -299,7 +327,7 @@ def schedule_tools(cfg: Config, created_by: str) -> list[Tool]:
             input_schema=schema(
                 {"name": {"type": "string", "description": "Short name, e.g. 'Email check'."},
                  "instruction": {"type": "string", "description": "What to do on every run, standalone."},
-                 **_TIMING},
+                 **_TIMING, **assign},
                 required=["name", "instruction"],
             ),
             handler=schedule_job, risk=Risk.WRITE, integration="schedules",
@@ -311,11 +339,12 @@ def schedule_tools(cfg: Config, created_by: str) -> list[Tool]:
         ),
         Tool(
             name="update_schedule",
-            description=("Change a recurring job: pause or resume it, change what it does, or change "
+            description=("Change a recurring job: pause or resume it, change what it does, who runs it, or "
                          "when it runs. Look up its id with list_schedules."),
             input_schema=schema(
                 {"id": {"type": "string"}, "paused": {"type": "boolean"}, "name": {"type": "string"},
-                 "instruction": {"type": "string"}, **_TIMING},
+                 "instruction": {"type": "string"}, **_TIMING,
+                 "assign_to": {"type": "string", "description": "Hand it to this team member (id), or 'chief' to run it yourself."}},
                 required=["id"],
             ),
             handler=update_schedule, risk=Risk.WRITE, integration="schedules",

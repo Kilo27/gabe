@@ -26,7 +26,7 @@ from pathlib import Path
 
 APP_NAME = "Gabe"
 KEYRING_SERVICE = "Gabe"
-API_KEY_NAMES = ("ANTHROPIC_API_KEY", "SLACK_BOT_TOKEN", "SLACK_APP_TOKEN")
+API_KEY_NAMES = ("ANTHROPIC_API_KEY", "SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "SLACK_USER_TOKEN")
 
 log = logging.getLogger("gabe.desktop")
 

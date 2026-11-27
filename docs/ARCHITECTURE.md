@@ -106,6 +106,25 @@ inside the app and follows settings and token changes. Posting is the `reply_on_
 Questions and outcomes go to `data/faq/questions.jsonl`; answers to the audit log; tokens to
 the usage log as task `faq`.
 
+**Watching the user's Slack.** `gabe/slack_watch.py`, separate from the FAQ bot: it reads Slack
+*as the user* (a user token, `xoxp-`, scopes in `USER_SCOPES`, added to the same app manifest).
+`SlackWatchService.tick()` runs every 30 s in the app and scans every `every_minutes`: per
+conversation it reads history since its own cursor (DMs and group DMs, plus listed channels;
+busy conversations first, at most 40 reads a scan, quiet DMs take turns), logs person messages
+to `data/slack/messages.json` (7 days), and, with `note_tasks`, asks a tool-less small model
+which messages hold work for the user (asked of them, or promised by them). Each becomes a task
+(`source: slack`, `slack_ref`, permalink), once, decided by the company's rule for `create_task`
+("ask" queues it in Approvals). A module lock stops the brief and the watcher reading the same
+messages twice. The brief catches up first and gets the last 24 h as a `<slack>` block; the
+`slack` integration gives agents `slack_messages`, `read_slack_thread` and
+`send_slack_message` (external, `ask_first`: it speaks as the user).
+
+**Standing duties.** A recurring job can carry a `member`: its runs happen in a conversation
+with that team member (`build_gabe(member=...)`), under its own freedom level, instead of Gabe.
+Gabe sets one with `schedule_job(assign_to=...)`; the prompts tell it to give recurring work to
+the member whose job it is, to run whole workflows (hand on the next step a report reveals), and
+tell members to own the outcome and follow through.
+
 **Desktop app.** The team is edited and watched from the app's Agents screen
 (`gabe/web/server.py`, `/api/agents`); see the README's Desktop app section. Approvals block
 the run's thread until someone decides in the app (approve, edit then approve, or decline
@@ -116,7 +135,9 @@ with a note); ones still waiting when the app quits expire and Gabe is told no.
 Done: Gmail access (search, read, draft, send), daily briefing (`gabe brief`, `gabe schedule`).
 
 1. **Web UI**: planned in [UI_PLAN.md](UI_PLAN.md). Needs async approvals and persistent sessions first.
-2. **Slack integration**: done: the customer FAQ bot ([FAQ_BOT.md](FAQ_BOT.md)). Next: talk
+2. **Slack integration**: done: the customer FAQ bot ([FAQ_BOT.md](FAQ_BOT.md)) and watching
+   the user's own Slack ([SLACK.md](SLACK.md)). Next: thread replies and mentions outside
+   watched channels (needs search or user events), talk
    to Gabe in DMs and channels, approve actions with Slack buttons, post the daily brief to a
    channel, on the same Socket Mode connection.
 3. More connectors. Done: MCP client (`gabe/integrations/mcp.py`), so any MCP server

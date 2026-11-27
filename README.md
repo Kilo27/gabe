@@ -95,7 +95,13 @@ live in `%APPDATA%\Gabe\`, the API key in Windows Credential Manager.
   overdue tasks") and it sets one up. Each run happens in its own conversation with a fresh
   memory, under the same approvals as anything else, and stays quiet when there's nothing to
   report. They run while the app is open (a missed run happens once on the next start) and are
-  listed on the Tasks screen, where you can run, pause or delete them.
+  listed on the Tasks screen, where you can run, pause or delete them. A job can belong to a
+  bot as a standing duty ("have Inbox triage sort my email every hour"): that bot runs it on
+  its own, under its own freedom level.
+- Your Slack: Settings → Slack. Gabe reads your DMs, group DMs and the channels you pick,
+  turns what people ask of you (and what you promise) into tasks with a link back, and adds a
+  Slack section to the daily brief. Bots can read Slack and, with your OK, reply as you. See
+  [docs/SLACK.md](docs/SLACK.md).
 - When Gabe or a bot asks you something (`ask_user`) or needs an approval, you get a macOS
   notification (click it to answer), a Dock badge with the count, and a banner in the app.
   The run waits for your answer. The first time, macOS asks to allow Gabe's notifications.
