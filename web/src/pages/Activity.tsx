@@ -5,7 +5,7 @@ import { api, getText, native, type AuditRow } from "../api";
 import { useOverview } from "../components/Shell";
 import { Chip, Empty, PageHeader, Segmented, SkeletonList, useToast } from "../components/ui";
 import { clock } from "../lib/format";
-import { agentName, humanize, outcome, tool } from "../lib/tools";
+import { agentName, humanize, outcome, showValue, tool } from "../lib/tools";
 
 export function ActivityRow({ row, compact }: { row: AuditRow; compact?: boolean }) {
   const { data: ov } = useOverview();
@@ -32,7 +32,7 @@ export function ActivityRow({ row, compact }: { row: AuditRow; compact?: boolean
                 {input.map(([k, v]) => (
                   <div key={k}>
                     <dt>{humanize(k)}</dt>
-                    <dd>{typeof v === "string" ? v : JSON.stringify(v)}</dd>
+                    <dd>{showValue(row.tool, k, v)}</dd>
                   </div>
                 ))}
               </dl>

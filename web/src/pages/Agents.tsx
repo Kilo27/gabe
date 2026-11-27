@@ -6,7 +6,7 @@ import { api, type Agent, type AgentsData, type Approval, type Decision, type Fa
 import { ApprovalCard } from "../components/ApprovalCard";
 import { AttachedTask, TaskPicker } from "../components/TaskPicker";
 import { Field, Notice, PageHeader, Segmented, Sheet, SkeletonList, useToast } from "../components/ui";
-import { MODELS, agentHue, agentLabel, modelLabel, nowText, type AgentHue } from "../lib/agents";
+import { MODELS, MODEL_HINT, agentHue, agentLabel, modelLabel, nowText, type AgentHue } from "../lib/agents";
 import type { Area } from "../lib/areas";
 import { when } from "../lib/format";
 import { DECISION_WORDS, outcome, tool } from "../lib/tools";
@@ -89,7 +89,7 @@ function Peek({ a, levels, onMore, style, onEnter, onLeave }: {
         <span className="peek-label">Model</span>
         {member ? (
           <Segmented<string> label="Model" value={a.model ?? ""} onChange={(v) => patch.mutate({ model: v || null })}
-            options={[{ value: "", label: "Default" }, ...Object.entries(MODELS).map(([k, l]) => ({ value: k, label: l }))]} />
+            options={[{ value: "", label: "Default" }, ...Object.entries(MODELS).map(([k, l]) => ({ value: k, label: <span title={MODEL_HINT[k]}>{l}</span> }))]} />
         ) : <strong className="peek-value">{modelLabel(a.model_in_use)}</strong>}
       </div>
       <div className="peek-row">
@@ -430,7 +430,7 @@ function ModelPick({ value, onChange, lastUsed }: { value: string | null | undef
   return (
     <select className="select" value={value ?? ""} onChange={(e) => onChange(e.target.value || null)}>
       <option value="">{lastUsed ? `Default (last job: ${modelLabel(lastUsed)})` : "Default"}</option>
-      {Object.entries(MODELS).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+      {Object.entries(MODELS).map(([k, label]) => <option key={k} value={k}>{label} · {MODEL_HINT[k]}</option>)}
     </select>
   );
 }

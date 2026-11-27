@@ -34,4 +34,6 @@ export function nowText(a: Agent): string {
 }
 
 export const MODELS: Record<string, string> = { haiku: "Haiku", sonnet: "Sonnet", opus: "Opus" };
+/** One word on what each model is for, shown beside its name where you pick one. */
+export const MODEL_HINT: Record<string, string> = { haiku: "fastest", sonnet: "balanced", opus: "most capable" };
 export const modelLabel = (m?: string | null) => (m ? MODELS[m] ?? m : "Default");

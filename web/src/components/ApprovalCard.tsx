@@ -4,8 +4,8 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Approval } from "../api";
 import { when } from "../lib/format";
-import { MODELS, modelLabel } from "../lib/agents";
-import { RISK, humanize, tool } from "../lib/tools";
+import { MODELS, MODEL_HINT, modelLabel } from "../lib/agents";
+import { RISK, humanize, showValue, tool } from "../lib/tools";
 import { Chip, Field, useToast } from "./ui";
 
 const EMAIL_TOOLS = ["send_email", "draft_email"];
@@ -49,7 +49,7 @@ function NewMemberEditor({ value, onChange }: { value: Record<string, any>; onCh
           onChange(e.target.value ? { ...rest, model: e.target.value } : rest);
         }}>
           <option value="">Default</option>
-          {Object.entries(MODELS).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+          {Object.entries(MODELS).map(([k, label]) => <option key={k} value={k}>{label} · {MODEL_HINT[k]}</option>)}
         </select>
       </Field>
       <div className="field">
@@ -96,13 +96,13 @@ function SlackReplyView({ args }: { args: Record<string, any> }) {
   );
 }
 
-function GenericView({ args }: { args: Record<string, any> }) {
+function GenericView({ args, name }: { args: Record<string, any>; name: string }) {
   return (
     <dl className="kv">
       {Object.entries(args).map(([k, v]) => (
         <div key={k}>
           <dt>{humanize(k)}</dt>
-          <dd>{typeof v === "string" ? v : Array.isArray(v) ? v.join(", ") : JSON.stringify(v)}</dd>
+          <dd>{showValue(name, k, v)}</dd>
         </div>
       ))}
     </dl>
@@ -282,7 +282,7 @@ function ApprovalDecision({ a, compact }: { a: Approval; compact?: boolean }) {
         ) : EMAIL_TOOLS.includes(a.tool) ? (
           <EmailView args={a.args} />
         ) : (
-          <GenericView args={a.args} />
+          <GenericView args={a.args} name={a.tool} />
         )}
       </div>
 

@@ -52,10 +52,12 @@ function SaveBtn({ m, onClick }: { m: { isPending: boolean }; onClick: () => voi
 function Company({ s }: { s: Settings }) {
   const [f, setF] = useState(s.company);
   const [name, setName] = useState(s.assistant_name);
-  const [facts, setFacts] = useState(Object.entries(s.company.facts));
+  // Shown as "Working hours"; saved under the original key (working_hours) unless renamed.
+  const [facts, setFacts] = useState(() => Object.entries(s.company.facts).map(([k, v]) => [humanize(k), v, k]));
+  const factKey = ([label, , orig]: string[]) => (orig && humanize(orig) === label ? orig : label.trim().toLowerCase().replace(/\s+/g, "_"));
   const save = useSave("/api/settings/company");
   return (
-    <Section title="Company" foot={<SaveBtn m={save} onClick={() => save.mutate({ ...f, assistant_name: name, facts: Object.fromEntries(facts) })} />}>
+    <Section title="Company" foot={<SaveBtn m={save} onClick={() => save.mutate({ ...f, assistant_name: name, facts: Object.fromEntries(facts.filter((f) => f[0].trim()).map((f) => [factKey(f), f[1]])) })} />}>
       <div className="form-grid">
         <Field label="Company name"><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
         <Field label="Time zone"><input className="input" value={f.timezone} onChange={(e) => setF({ ...f, timezone: e.target.value })} placeholder="Europe/Dublin" /></Field>
@@ -68,12 +70,12 @@ function Company({ s }: { s: Settings }) {
         <span>Other facts</span>
         {facts.map(([k, v], i) => (
           <div className="row" key={i} style={{ flexWrap: "nowrap" }}>
-            <input className="input" style={{ maxWidth: 220 }} value={k} aria-label="Fact name" onChange={(e) => setFacts(facts.map((x, j) => (j === i ? [e.target.value, x[1]] : x)))} />
-            <input className="input grow" value={v} aria-label="Fact value" onChange={(e) => setFacts(facts.map((x, j) => (j === i ? [x[0], e.target.value] : x)))} />
+            <input className="input" style={{ maxWidth: 220 }} value={k} aria-label="Fact name" onChange={(e) => setFacts(facts.map((x, j) => (j === i ? [e.target.value, x[1], x[2]] : x)))} />
+            <input className="input grow" value={v} aria-label="Fact value" onChange={(e) => setFacts(facts.map((x, j) => (j === i ? [x[0], e.target.value, x[2]] : x)))} />
             <button className="btn btn-ghost btn-icon btn-danger" aria-label="Remove fact" onClick={() => setFacts(facts.filter((_, j) => j !== i))}><Trash2 size={16} /></button>
           </div>
         ))}
-        <div><button className="btn btn-sm" onClick={() => setFacts([...facts, ["", ""]])}><Plus size={15} /> Add fact</button></div>
+        <div><button className="btn btn-sm" onClick={() => setFacts([...facts, ["", "", ""]])}><Plus size={15} /> Add fact</button></div>
       </div>
     </Section>
   );
@@ -313,9 +315,8 @@ function Customize({ s }: { s: Settings }) {
   return (
     <Section title="Claude Code">
       {s.claude_code.installed ? (
-        <div className="row" style={{ flexWrap: "nowrap" }}>
-          <code className="grow faint" style={{ overflowWrap: "anywhere" }}>{s.claude_code.folder}</code>
-          <button className="btn btn-primary" onClick={() => open.mutate()} disabled={open.isPending}>
+        <div>
+          <button className="btn btn-primary" onClick={() => open.mutate()} disabled={open.isPending} title={s.claude_code.folder}>
             <SquareTerminal size={15} /> Open in Claude Code
           </button>
         </div>
